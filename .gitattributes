@@ -1,0 +1,11 @@
+# Normaliza line endings para LF no repositório (padrão Unix/Docker)
+* text=auto eol=lf
+
+# Scripts shell — sempre LF
+*.sh text eol=lf
+
+# Binários — sem conversão
+*.png binary
+*.jpg binary
+*.ico binary
+*.pdf binary

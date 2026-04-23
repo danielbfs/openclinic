@@ -1,0 +1,34 @@
+/**
+ * Cliente HTTP para a API do Open Clinic AI.
+ * Usa axios com interceptors para JWT automático.
+ */
+import axios from "axios";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+export const api = axios.create({
+  baseURL: `${API_BASE}/api/v1`,
+  headers: { "Content-Type": "application/json" },
+});
+
+// Adiciona token JWT automaticamente
+api.interceptors.request.use((config) => {
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Redireciona para login em 401
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("access_token");
+      window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
+);

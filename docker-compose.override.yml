@@ -1,0 +1,63 @@
+# ============================================================
+# Open Clinic AI — docker-compose.override.yml (DEV LOCAL)
+#
+# Aplicado automaticamente pelo Docker Compose sobre o base.
+# NÃO é usado em produção (Hostinger não tem este arquivo).
+#
+# Diferenças do ambiente de produção:
+#  - Traefik desativado (acesso direto pelas portas)
+#  - Hot reload no backend e frontend
+#  - Portas do DB e Redis expostas para ferramentas locais
+# ============================================================
+
+version: "3.9"
+
+services:
+  traefik:
+    profiles:
+      - disabled   # Traefik desativado em dev
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: development
+      DOMAIN: localhost
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    labels: []   # Sem labels Traefik em dev
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    labels: []
+
+  db:
+    ports:
+      - "5432:5432"   # Acesso via DBeaver / pgAdmin local
+
+  redis:
+    ports:
+      - "6379:6379"   # Acesso via Redis Insight local
+
+  celery_worker:
+    volumes:
+      - ./backend:/app
+    command: celery -A celery_app worker --loglevel=debug -Q default,followup,leads --concurrency=2
+
+  celery_beat:
+    volumes:
+      - ./backend:/app

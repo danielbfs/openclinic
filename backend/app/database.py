@@ -1,0 +1,45 @@
+"""
+Configuração do banco de dados PostgreSQL com SQLAlchemy async.
+"""
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
+
+from app.config import settings
+
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    echo=settings.ENVIRONMENT == "development",
+)
+
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+
+class Base(DeclarativeBase):
+    """Base para todos os modelos SQLAlchemy."""
+    pass
+
+
+async def init_db():
+    """Importa todos os modelos para garantir registro no metadata."""
+    # Importar modelos aqui conforme forem criados
+    # from app.modules.auth.models import User  # noqa
+    # from app.modules.leads.models import Lead, LeadInteraction  # noqa
+    pass
+
+
+async def get_db() -> AsyncSession:
+    """Dependency injection para sessão do banco."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()

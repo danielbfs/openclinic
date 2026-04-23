@@ -1,0 +1,46 @@
+"""
+Configuração do Celery para tasks assíncronas e agendadas.
+"""
+from celery import Celery
+from celery.schedules import crontab
+
+from app.config import settings
+
+celery_app = Celery(
+    "openclinic",
+    broker=settings.REDIS_URL,
+    backend=settings.REDIS_URL,
+    include=[
+        "app.modules.followup.tasks",
+        "app.modules.leads.sla",
+    ],
+)
+
+celery_app.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone=settings.CLINIC_TIMEZONE,
+    enable_utc=True,
+    task_track_started=True,
+    task_acks_late=True,
+    worker_prefetch_multiplier=1,
+)
+
+# Filas
+celery_app.conf.task_queues = {
+    "default": {"exchange": "default", "routing_key": "default"},
+    "followup": {"exchange": "followup", "routing_key": "followup"},
+    "leads": {"exchange": "leads", "routing_key": "leads"},
+}
+celery_app.conf.task_default_queue = "default"
+
+# Tarefas agendadas (Celery Beat)
+celery_app.conf.beat_schedule = {
+    # Verifica leads com SLA vencido a cada 15 minutos
+    "check-overdue-leads": {
+        "task": "app.modules.leads.sla.check_overdue_leads",
+        "schedule": crontab(minute="*/15"),
+        "options": {"queue": "leads"},
+    },
+}
