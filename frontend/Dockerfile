@@ -9,6 +9,8 @@ COPY package.json package-lock.json* ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 # Copia código e compila
+# ARG abaixo invalida cache do Docker quando o código muda
+ARG CACHEBUST=1
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
