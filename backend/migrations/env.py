@@ -11,9 +11,7 @@ from app.config import settings
 from app.database import Base
 
 # Import all models so they're registered in Base.metadata
-# Uncomment as models are created:
-# from app.modules.auth.models import User  # noqa
-# from app.modules.leads.models import Lead, LeadInteraction  # noqa
+from app.modules.auth.models import User  # noqa
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

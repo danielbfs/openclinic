@@ -27,10 +27,7 @@ class Base(DeclarativeBase):
 
 async def init_db():
     """Importa todos os modelos para garantir registro no metadata."""
-    # Importar modelos aqui conforme forem criados
-    # from app.modules.auth.models import User  # noqa
-    # from app.modules.leads.models import Lead, LeadInteraction  # noqa
-    pass
+    from app.modules.auth.models import User  # noqa
 
 
 async def get_db() -> AsyncSession:

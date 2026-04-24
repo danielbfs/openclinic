@@ -34,11 +34,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers serão registrados aqui conforme os módulos forem implementados
-# from app.modules.auth.router import router as auth_router
-# from app.modules.leads.router import router as leads_router
-# app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
-# app.include_router(leads_router, prefix="/api/v1/leads", tags=["leads"])
+from app.modules.auth.router import router as auth_router
+
+app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 
 
 @app.get("/health")

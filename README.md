@@ -60,6 +60,17 @@ docker compose up -d
 
 Acesse `https://seu-dominio.com` — SSL provisionado automaticamente pelo Traefik.
 
+### Credenciais Iniciais
+
+Após rodar `./install.sh`, os seguintes usuários são criados:
+
+| Usuário | E-mail | Senha | Role |
+|---|---|---|---|
+| Administrador | `admin@openclinic.local` | `admin` | admin |
+| Secretária | `secretaria@openclinic.local` | `secretaria` | secretary |
+
+> **IMPORTANTE:** Altere as senhas no primeiro acesso via menu "Alterar Senha".
+
 ### Atualizar para nova versão
 
 ```bash
