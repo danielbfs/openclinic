@@ -1,26 +1,24 @@
 # ============================================================
 # Open Clinic AI — docker-compose.yml (PRODUÇÃO)
 #
-# Este arquivo é usado diretamente pela Hostinger no deploy
+# Este é o ÚNICO compose file usado pela Hostinger no deploy
 # via URL do GitHub. Inclui Traefik + SSL automático.
 #
-# Para desenvolvimento local, o docker-compose.override.yml
-# é aplicado automaticamente pelo Docker Compose.
+# Para desenvolvimento local, use:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 # ============================================================
 
-version: "3.9"
-
 x-backend-env: &backend-env
-  DATABASE_URL: postgresql+asyncpg://openclinic:${DB_PASSWORD}@db/openclinic
+  DATABASE_URL: postgresql+asyncpg://openclinic:${DB_PASSWORD:-openclinic}@db/openclinic
   REDIS_URL: redis://redis:6379/0
-  SECRET_KEY: ${SECRET_KEY}
-  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  SECRET_KEY: ${SECRET_KEY:-changeme-in-production}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
   CLINIC_TIMEZONE: ${CLINIC_TIMEZONE:-America/Sao_Paulo}
   CLINIC_SLA_HOURS: ${CLINIC_SLA_HOURS:-2}
   ENVIRONMENT: production
-  DOMAIN: ${DOMAIN}
+  DOMAIN: ${DOMAIN:-localhost}
 
 networks:
   proxy:
@@ -51,12 +49,12 @@ services:
       - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.traefik.entrypoints=websecure"
       - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
       - "traefik.http.routers.traefik.service=api@internal"
       - "traefik.http.routers.traefik.middlewares=traefik-auth"
-      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH}"
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH:-admin:admin}"
 
   # ── BANCO DE DADOS ───────────────────────────────────────
   db:
@@ -67,7 +65,7 @@ services:
     environment:
       POSTGRES_DB: openclinic
       POSTGRES_USER: openclinic
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-openclinic}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openclinic"]
       interval: 10s
@@ -92,7 +90,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
     environment:
       <<: *backend-env
     expose:
@@ -108,7 +105,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=openclinic_proxy"
-      - "traefik.http.routers.backend.rule=Host(`${DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/webhooks`))"
+      - "traefik.http.routers.backend.rule=Host(`${DOMAIN:-localhost}`) && (PathPrefix(`/api`) || PathPrefix(`/webhooks`))"
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
@@ -123,14 +120,14 @@ services:
     expose:
       - "3000"
     environment:
-      NEXT_PUBLIC_API_URL: https://${DOMAIN}
+      NEXT_PUBLIC_API_URL: https://${DOMAIN:-localhost}
     networks:
       - proxy
       - internal
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=openclinic_proxy"
-      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN:-localhost}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
@@ -142,7 +139,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
     environment:
       <<: *backend-env
     command: celery -A celery_app worker --loglevel=info -Q default,followup,leads --concurrency=4
@@ -159,7 +155,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
     environment:
       <<: *backend-env
     command: celery -A celery_app beat --loglevel=info

@@ -1,16 +1,14 @@
 # ============================================================
-# Open Clinic AI — docker-compose.override.yml (DEV LOCAL)
+# Open Clinic AI — docker-compose.dev.yml (DEV LOCAL)
 #
-# Aplicado automaticamente pelo Docker Compose sobre o base.
-# NÃO é usado em produção (Hostinger não tem este arquivo).
+# NÃO é aplicado automaticamente. Usar com:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 #
 # Diferenças do ambiente de produção:
 #  - Traefik desativado (acesso direto pelas portas)
 #  - Hot reload no backend e frontend
 #  - Portas do DB e Redis expostas para ferramentas locais
 # ============================================================
-
-version: "3.9"
 
 services:
   traefik:

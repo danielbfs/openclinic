@@ -79,8 +79,8 @@ cd openclinic
 cp .env.example .env
 # Editar .env com configurações locais (sem DOMAIN/ACME_EMAIL)
 
-# Subir (docker-compose.override.yml é aplicado automaticamente)
-docker compose up -d
+# Subir em modo dev (sem Traefik, com hot reload e portas expostas)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # Backend: http://localhost:8000
 # Frontend: http://localhost:3000
