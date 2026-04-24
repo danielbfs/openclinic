@@ -22,10 +22,10 @@ x-backend-env: &backend-env
   DOMAIN: ${DOMAIN:-localhost}
 
 networks:
-  # Rede externa criada pelo Traefik da Hostinger
-  # O nome pode variar — ajustar conforme config da VPS
+  # Rede para serviços acessíveis pelo Traefik (backend + frontend)
+  # Se o Traefik da Hostinger rodar na mesma rede, descobre via labels.
+  # Se não, os serviços sobem normalmente sem reverse proxy.
   proxy:
-    external: true
     name: ${TRAEFIK_NETWORK:-proxy}
   internal:
     name: openclinic_internal
