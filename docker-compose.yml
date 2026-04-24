@@ -19,7 +19,7 @@ x-backend-env: &backend-env
   CLINIC_TIMEZONE: ${CLINIC_TIMEZONE:-America/Sao_Paulo}
   CLINIC_SLA_HOURS: ${CLINIC_SLA_HOURS:-2}
   ENVIRONMENT: production
-  DOMAIN: clinica.sigame.tec.br
+  DOMAIN: ${DOMAIN:-localhost}
 
 networks:
   internal:
@@ -78,7 +78,7 @@ services:
       - internal
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.openclinic-backend.rule=Host(`clinica.sigame.tec.br`) && (PathPrefix(`/api`) || PathPrefix(`/webhooks`) || PathPrefix(`/health`) || PathPrefix(`/docs`) || PathPrefix(`/redoc`) || PathPrefix(`/openapi.json`))"
+      - "traefik.http.routers.openclinic-backend.rule=Host(`${DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/webhooks`) || PathPrefix(`/health`) || PathPrefix(`/docs`) || PathPrefix(`/redoc`) || PathPrefix(`/openapi.json`))"
       - "traefik.http.routers.openclinic-backend.tls=true"
       - "traefik.http.routers.openclinic-backend.tls.certresolver=letsencrypt"
       - "traefik.http.services.openclinic-backend.loadbalancer.server.port=8000"
@@ -93,12 +93,12 @@ services:
     ports:
       - "127.0.0.1:3000:3000"   # só localhost — Traefik host-mode alcança via 127.0.0.1
     environment:
-      NEXT_PUBLIC_API_URL: https://clinica.sigame.tec.br
+      NEXT_PUBLIC_API_URL: https://${DOMAIN:-localhost}
     networks:
       - internal
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.openclinic-frontend.rule=Host(`clinica.sigame.tec.br`)"
+      - "traefik.http.routers.openclinic-frontend.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.openclinic-frontend.tls=true"
       - "traefik.http.routers.openclinic-frontend.tls.certresolver=letsencrypt"
       - "traefik.http.services.openclinic-frontend.loadbalancer.server.port=3000"
