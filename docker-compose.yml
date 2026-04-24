@@ -91,6 +91,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"   # só localhost — Traefik host-mode alcança via 127.0.0.1
+    environment:
+      NODE_ENV: production
     networks:
       - internal
     labels:
