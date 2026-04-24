@@ -33,32 +33,25 @@ Sistema open-source para clínicas automatizarem comunicação com pacientes via
 
 ### Pré-requisitos
 
-- VPS Ubuntu 22.04 LTS (mínimo 2 vCPU / 4GB RAM)
+- VPS Hostinger com Docker (mínimo 2 vCPU / 4GB RAM)
 - Domínio apontando para o IP da VPS (registro DNS tipo A)
-- Docker instalado: `curl -fsSL https://get.docker.com | sh`
+- **Traefik ativo na Hostinger** — na seção Docker do painel, inicie o container de **Proxy Reverso / Balanceador de Carga** (é o Traefik da Hostinger). Ele gerencia o SSL (Let's Encrypt) e roteia o tráfego para os containers do Open Clinic.
 
 ### Passos
 
+1. No painel Hostinger, vá em **VPS → Docker → Implantar** e aponte para o repositório GitHub (`https://github.com/danielbfs/openclinic`)
+2. Configure as variáveis de ambiente (especialmente `DOMAIN`, `DB_PASSWORD`, `SECRET_KEY`) — veja `.env.example` para a lista completa
+3. Implante o compose — a Hostinger executa `docker compose up -d` automaticamente
+4. Via SSH, rode o script de pós-deploy:
+
 ```bash
-# 1. Clonar o repositório
-git clone https://github.com/danielbfs/openclinic.git
-cd openclinic
-
-# 2. Configurar variáveis de ambiente
-cp .env.example .env
-nano .env   # preencher DOMAIN, senhas e tokens
-
-# 3. Ajustar permissão do arquivo de certificados SSL
-touch traefik/acme.json && chmod 600 traefik/acme.json
-
-# 4. Subir os serviços
-docker compose up -d
-
-# 5. Migrations + criar admin inicial
+cd /caminho-do-projeto
 ./install.sh
 ```
 
-Acesse `https://seu-dominio.com` — SSL provisionado automaticamente pelo Traefik.
+Acesse `https://seu-dominio.com` — SSL provisionado automaticamente pelo Traefik da Hostinger.
+
+> **Nota:** O Traefik da Hostinger roda em `network_mode: host`. Os containers do Open Clinic fazem bind em `127.0.0.1` e o Traefik os alcança via localhost, usando as labels configuradas no `docker-compose.yml`.
 
 ### Credenciais Iniciais
 
