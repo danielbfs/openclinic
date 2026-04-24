@@ -1,10 +1,11 @@
 # ============================================================
 # Open Clinic AI — docker-compose.yml (PRODUÇÃO)
 #
-# Este é o ÚNICO compose file usado pela Hostinger no deploy
-# via URL do GitHub. Inclui Traefik + SSL automático.
+# Deploy via Hostinger: URL do GitHub → docker-compose.yml
+# O Traefik da Hostinger (ou externo) roteia tráfego para os
+# containers via labels Docker. Nenhum proxy dentro deste compose.
 #
-# Para desenvolvimento local, use:
+# Dev local:
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 # ============================================================
 
@@ -21,40 +22,19 @@ x-backend-env: &backend-env
   DOMAIN: ${DOMAIN:-localhost}
 
 networks:
+  # Rede externa criada pelo Traefik da Hostinger
+  # O nome pode variar — ajustar conforme config da VPS
   proxy:
-    name: openclinic_proxy
+    external: true
+    name: ${TRAEFIK_NETWORK:-proxy}
   internal:
     name: openclinic_internal
 
 volumes:
   postgres_data:
   redis_data:
-  traefik_certs:
 
 services:
-
-  # ── REVERSE PROXY + SSL AUTO ─────────────────────────────
-  traefik:
-    image: traefik:v3.1
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik/dynamic:/etc/traefik/dynamic:ro
-      - traefik_certs:/letsencrypt
-    networks:
-      - proxy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN:-localhost}`)"
-      - "traefik.http.routers.traefik.entrypoints=websecure"
-      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.traefik.service=api@internal"
-      - "traefik.http.routers.traefik.middlewares=traefik-auth"
-      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH:-admin:admin}"
 
   # ── BANCO DE DADOS ───────────────────────────────────────
   db:
@@ -104,12 +84,10 @@ services:
       - internal
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=openclinic_proxy"
-      - "traefik.http.routers.backend.rule=Host(`${DOMAIN:-localhost}`) && (PathPrefix(`/api`) || PathPrefix(`/webhooks`))"
-      - "traefik.http.routers.backend.entrypoints=websecure"
-      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
-      - "traefik.http.services.backend.loadbalancer.server.port=8000"
-      - "traefik.http.routers.backend.middlewares=security-headers@file"
+      - "traefik.http.routers.openclinic-backend.rule=Host(`${DOMAIN:-localhost}`) && (PathPrefix(`/api`) || PathPrefix(`/webhooks`) || PathPrefix(`/health`) || PathPrefix(`/docs`) || PathPrefix(`/redoc`) || PathPrefix(`/openapi.json`))"
+      - "traefik.http.routers.openclinic-backend.entrypoints=websecure"
+      - "traefik.http.routers.openclinic-backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.openclinic-backend.loadbalancer.server.port=8000"
 
   # ── FRONTEND ─────────────────────────────────────────────
   frontend:
@@ -126,12 +104,12 @@ services:
       - internal
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=openclinic_proxy"
-      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN:-localhost}`)"
-      - "traefik.http.routers.frontend.entrypoints=websecure"
-      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
-      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
-      - "traefik.http.routers.frontend.middlewares=security-headers@file"
+      - "traefik.http.routers.openclinic-frontend.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.openclinic-frontend.entrypoints=websecure"
+      - "traefik.http.routers.openclinic-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.openclinic-frontend.loadbalancer.server.port=3000"
+      # Prioridade menor que o backend (rotas /api vão pro backend primeiro)
+      - "traefik.http.routers.openclinic-frontend.priority=1"
 
   # ── WORKERS CELERY ───────────────────────────────────────
   celery_worker:

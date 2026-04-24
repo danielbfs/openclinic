@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================
-# Open Clinic AI — Script de Instalação
+# Open Clinic AI — Script de Pós-Deploy
 # Executar APÓS: docker compose up -d
+# Roda migrations e cria o admin inicial.
 # ============================================================
 
 set -e
@@ -17,28 +18,13 @@ error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║         Open Clinic AI — Instalação      ║"
+echo "║     Open Clinic AI — Pós-Deploy          ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 
 # Verificar pré-requisitos
-command -v docker >/dev/null 2>&1 || error "Docker não encontrado. Instale: curl -fsSL https://get.docker.com | sh"
+command -v docker >/dev/null 2>&1 || error "Docker não encontrado."
 docker compose version >/dev/null 2>&1 || error "Docker Compose v2 não encontrado."
-
-# Verificar .env
-[ -f ".env" ] || error "Arquivo .env não encontrado. Execute: cp .env.example .env && nano .env"
-
-# Verificar variáveis obrigatórias
-source .env
-[ -z "$DB_PASSWORD" ]  && error "DB_PASSWORD não configurado no .env"
-[ -z "$SECRET_KEY" ]   && error "SECRET_KEY não configurado no .env"
-
-# Arquivo de certificados SSL (Traefik exige permissão 600)
-if [ ! -f "traefik/acme.json" ]; then
-    info "Criando traefik/acme.json..."
-    touch traefik/acme.json
-    chmod 600 traefik/acme.json
-fi
 
 # Aguardar banco de dados
 info "Aguardando banco de dados ficar pronto..."
@@ -58,22 +44,12 @@ docker compose exec -T backend alembic upgrade head
 info "Criando usuário administrador inicial..."
 docker compose exec -T backend python -m app.scripts.create_admin
 
-# Registrar webhook do Telegram (se token configurado)
-if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$DOMAIN" ]; then
-    info "Registrando webhook do Telegram..."
-    WEBHOOK_URL="https://${DOMAIN}/webhooks/telegram/${TELEGRAM_BOT_TOKEN}"
-    RESPONSE=$(curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=${WEBHOOK_URL}&secret_token=${SECRET_KEY:0:32}")
-    echo "$RESPONSE" | grep -q '"ok":true' && info "Webhook Telegram registrado com sucesso." || warning "Falha ao registrar webhook Telegram. Verifique manualmente."
-fi
-
-DOMAIN_VALUE=$(grep ^DOMAIN .env | cut -d= -f2 | tr -d '"')
 echo ""
 echo "╔══════════════════════════════════════════╗"
 echo "║        Instalação concluída!             ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
-info "Acesse: https://${DOMAIN_VALUE}"
-info "SSL será provisionado automaticamente pelo Traefik."
-info "Admin: https://${DOMAIN_VALUE}/admin"
+info "O Traefik externo da Hostinger cuida do SSL."
+info "Verifique se o domínio está acessível via HTTPS."
 echo ""
 warning "Guarde as credenciais do administrador exibidas acima!"
