@@ -22,11 +22,6 @@ x-backend-env: &backend-env
   DOMAIN: clinica.sigame.tec.br
 
 networks:
-  # Rede para serviços acessíveis pelo Traefik (backend + frontend)
-  # Se o Traefik da Hostinger rodar na mesma rede, descobre via labels.
-  # Se não, os serviços sobem normalmente sem reverse proxy.
-  proxy:
-    name: ${TRAEFIK_NETWORK:-proxy}
   internal:
     name: openclinic_internal
 
@@ -72,15 +67,14 @@ services:
     restart: unless-stopped
     environment:
       <<: *backend-env
-    expose:
-      - "8000"
+    ports:
+      - "127.0.0.1:8000:8000"   # só localhost — Traefik host-mode alcança via 127.0.0.1
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_started
     networks:
-      - proxy
       - internal
     labels:
       - "traefik.enable=true"
@@ -88,6 +82,7 @@ services:
       - "traefik.http.routers.openclinic-backend.tls=true"
       - "traefik.http.routers.openclinic-backend.tls.certresolver=letsencrypt"
       - "traefik.http.services.openclinic-backend.loadbalancer.server.port=8000"
+      - "traefik.http.services.openclinic-backend.loadbalancer.server.url=http://127.0.0.1:8000"
 
   # ── FRONTEND ─────────────────────────────────────────────
   frontend:
@@ -95,12 +90,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
-    expose:
-      - "3000"
+    ports:
+      - "127.0.0.1:3000:3000"   # só localhost — Traefik host-mode alcança via 127.0.0.1
     environment:
       NEXT_PUBLIC_API_URL: https://clinica.sigame.tec.br
     networks:
-      - proxy
       - internal
     labels:
       - "traefik.enable=true"
@@ -108,6 +102,7 @@ services:
       - "traefik.http.routers.openclinic-frontend.tls=true"
       - "traefik.http.routers.openclinic-frontend.tls.certresolver=letsencrypt"
       - "traefik.http.services.openclinic-frontend.loadbalancer.server.port=3000"
+      - "traefik.http.services.openclinic-frontend.loadbalancer.server.url=http://127.0.0.1:3000"
       # Prioridade menor que o backend (rotas /api vão pro backend primeiro)
       - "traefik.http.routers.openclinic-frontend.priority=1"
 
