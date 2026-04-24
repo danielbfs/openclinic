@@ -81,7 +81,6 @@ services:
       - "traefik.http.routers.openclinic-backend.rule=Host(`${DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/webhooks`) || PathPrefix(`/health`) || PathPrefix(`/docs`) || PathPrefix(`/redoc`) || PathPrefix(`/openapi.json`))"
       - "traefik.http.routers.openclinic-backend.tls=true"
       - "traefik.http.routers.openclinic-backend.tls.certresolver=letsencrypt"
-      - "traefik.http.services.openclinic-backend.loadbalancer.server.port=8000"
       - "traefik.http.services.openclinic-backend.loadbalancer.server.url=http://127.0.0.1:8000"
 
   # ── FRONTEND ─────────────────────────────────────────────
@@ -101,7 +100,6 @@ services:
       - "traefik.http.routers.openclinic-frontend.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.openclinic-frontend.tls=true"
       - "traefik.http.routers.openclinic-frontend.tls.certresolver=letsencrypt"
-      - "traefik.http.services.openclinic-frontend.loadbalancer.server.port=3000"
       - "traefik.http.services.openclinic-frontend.loadbalancer.server.url=http://127.0.0.1:3000"
       # Prioridade menor que o backend (rotas /api vão pro backend primeiro)
       - "traefik.http.routers.openclinic-frontend.priority=1"
