@@ -1,8 +1,115 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import type { User, Specialty, Doctor, Lead } from "@/types";
+
+interface DashboardData {
+  users: User[];
+  specialties: Specialty[];
+  doctors: Doctor[];
+  leads: Lead[];
+  sla: { total: number; within_sla: number; overdue: number; sla_rate: number } | null;
+}
+
 export default function AdminPage() {
+  const [data, setData] = useState<DashboardData>({
+    users: [], specialties: [], doctors: [], leads: [], sla: null,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchAll() {
+      try {
+        const [usersRes, specsRes, docsRes, leadsRes, slaRes] = await Promise.allSettled([
+          api.get("/auth/users"),
+          api.get("/specialties/"),
+          api.get("/scheduling/doctors"),
+          api.get("/leads/"),
+          api.get("/leads/reports/sla?period=30d"),
+        ]);
+
+        setData({
+          users: usersRes.status === "fulfilled" ? usersRes.value.data : [],
+          specialties: specsRes.status === "fulfilled" ? specsRes.value.data : [],
+          doctors: docsRes.status === "fulfilled" ? docsRes.value.data : [],
+          leads: leadsRes.status === "fulfilled" ? leadsRes.value.data : [],
+          sla: slaRes.status === "fulfilled" ? slaRes.value.data : null,
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchAll();
+  }, []);
+
+  if (loading) {
+    return <div className="p-8 text-gray-400">Carregando painel...</div>;
+  }
+
+  const overdueLeads = data.leads.filter((l) => l.is_overdue);
+  const newLeads = data.leads.filter((l) => l.status === "novo");
+
   return (
     <main className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900">Painel Administrativo</h1>
-      <p className="text-gray-500 mt-2">Em desenvolvimento — Phase 1</p>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Painel Administrativo</h1>
+
+      {/* Cards resumo */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <Card title="Usuários" value={data.users.length} subtitle={`${data.users.filter(u => u.is_active).length} ativos`} />
+        <Card title="Especialidades" value={data.specialties.length} />
+        <Card title="Médicos" value={data.doctors.length} subtitle={`${data.doctors.filter(d => d.is_active).length} ativos`} />
+        <Card title="Leads" value={data.leads.length} subtitle={`${newLeads.length} novos`} />
+      </div>
+
+      {/* SLA */}
+      {data.sla && (
+        <div className="bg-white border rounded-lg p-6 mb-8">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">SLA de Leads (30 dias)</h2>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Stat label="Total" value={data.sla.total} />
+            <Stat label="Dentro do SLA" value={data.sla.within_sla} color="text-green-600" />
+            <Stat label="Vencidos" value={data.sla.overdue} color="text-red-600" />
+            <Stat label="Taxa SLA" value={`${data.sla.sla_rate}%`} color={data.sla.sla_rate >= 80 ? "text-green-600" : "text-red-600"} />
+          </div>
+        </div>
+      )}
+
+      {/* Leads vencidos */}
+      {overdueLeads.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-red-700 mb-3">
+            Leads com SLA vencido ({overdueLeads.length})
+          </h2>
+          <div className="space-y-2">
+            {overdueLeads.slice(0, 10).map((lead) => (
+              <div key={lead.id} className="flex items-center justify-between text-sm">
+                <span className="text-gray-900">{lead.full_name || lead.phone}</span>
+                <span className="text-red-600">{lead.channel}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </main>
+  );
+}
+
+function Card({ title, value, subtitle }: { title: string; value: number; subtitle?: string }) {
+  return (
+    <div className="bg-white border rounded-lg p-4">
+      <p className="text-sm text-gray-500">{title}</p>
+      <p className="text-3xl font-bold text-gray-900">{value}</p>
+      {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
+    </div>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: number | string; color?: string }) {
+  return (
+    <div>
+      <p className="text-sm text-gray-500">{label}</p>
+      <p className={`text-2xl font-bold ${color || "text-gray-900"}`}>{value}</p>
+    </div>
   );
 }

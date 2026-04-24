@@ -31,6 +31,7 @@ async def init_db():
     from app.modules.admin.models import Specialty  # noqa
     from app.modules.scheduling.models import Doctor, DoctorSchedule, ScheduleBlock, Appointment  # noqa
     from app.modules.crm.models import Patient  # noqa
+    from app.modules.leads.models import Lead, LeadInteraction  # noqa
 
 
 async def get_db() -> AsyncSession:
