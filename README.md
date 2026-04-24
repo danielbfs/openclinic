@@ -66,9 +66,28 @@ Após rodar `./install.sh`, os seguintes usuários são criados:
 
 ### Atualizar para nova versão
 
+Conecte-se via SSH na VPS e rode:
+
 ```bash
-./update.sh
+cd /docker/openclinic
+
+# 1. Baixar código atualizado do GitHub
+git pull origin main
+
+# 2. Reconstruir imagens (sem cache para garantir código novo)
+docker compose build --no-cache
+
+# 3. Reiniciar serviços
+docker compose up -d --remove-orphans
+
+# 4. Rodar migrations (se houver alterações no banco)
+docker compose exec -T backend alembic upgrade head
+
+# 5. (Opcional) Limpar imagens antigas
+docker image prune -f
 ```
+
+> **Nota:** A Hostinger não puxa atualizações do GitHub automaticamente. O botão "Reimplantar" no painel recria os containers a partir do código já presente na VPS. Para obter o código novo, é necessário rodar `git pull` via SSH antes de reimplantar.
 
 ---
 
