@@ -4,7 +4,9 @@
  */
 import axios from "axios";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Em produção: URL relativa (mesmo domínio — Traefik roteia /api para o backend)
+// Em dev: NEXT_PUBLIC_API_URL aponta para http://localhost:8000
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export const api = axios.create({
   baseURL: `${API_BASE}/api/v1`,

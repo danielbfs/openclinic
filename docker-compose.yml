@@ -91,8 +91,6 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"   # só localhost — Traefik host-mode alcança via 127.0.0.1
-    environment:
-      NEXT_PUBLIC_API_URL: https://${DOMAIN:-localhost}
     networks:
       - internal
     labels:
