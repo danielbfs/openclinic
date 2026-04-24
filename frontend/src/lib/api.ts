@@ -21,12 +21,18 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Redireciona para login em 401
+// Redireciona para login em 401 (exceto quando já está no login ou fazendo login)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (
+      error.response?.status === 401 &&
+      !error.config?.url?.includes("/auth/login") &&
+      typeof window !== "undefined" &&
+      !window.location.pathname.startsWith("/login")
+    ) {
       localStorage.removeItem("access_token");
+      localStorage.removeItem("refresh_token");
       window.location.href = "/login";
     }
     return Promise.reject(error);
