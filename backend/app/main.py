@@ -35,8 +35,14 @@ app.add_middleware(
 )
 
 from app.modules.auth.router import router as auth_router
+from app.modules.admin.router import router as specialties_router
+from app.modules.scheduling.router import router as scheduling_router
+from app.modules.crm.router import router as patients_router
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(specialties_router, prefix="/api/v1/specialties", tags=["specialties"])
+app.include_router(scheduling_router, prefix="/api/v1/scheduling", tags=["scheduling"])
+app.include_router(patients_router, prefix="/api/v1/patients", tags=["patients"])
 
 
 @app.get("/health")
