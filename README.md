@@ -42,12 +42,18 @@ Sistema open-source para clínicas automatizarem comunicação com pacientes via
 1. No painel Hostinger, vá em **VPS → Docker → Implantar** e aponte para o repositório GitHub (`https://github.com/danielbfs/openclinic`)
 2. Configure as variáveis de ambiente (especialmente `DOMAIN`, `DB_PASSWORD`, `SECRET_KEY`) — veja `.env.example` para a lista completa
 3. Implante o compose — a Hostinger executa `docker compose up -d` automaticamente
-4. Via SSH, rode o script de pós-deploy:
+4. Via SSH, rode o script de pós-deploy (inicializa Git, migrations e admin):
 
 ```bash
-cd /caminho-do-projeto
+cd /docker/openclinic
+chmod +x install.sh update.sh
 ./install.sh
 ```
+
+O `install.sh` faz automaticamente:
+- Inicializa o repositório Git (a Hostinger não clona como repo Git)
+- Roda as migrations do banco de dados
+- Cria os usuários iniciais (admin e secretária)
 
 Acesse `https://seu-dominio.com` — SSL provisionado automaticamente pelo Traefik da Hostinger.
 

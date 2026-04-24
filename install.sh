@@ -2,7 +2,7 @@
 # ============================================================
 # Open Clinic AI — Script de Pós-Deploy
 # Executar APÓS: docker compose up -d
-# Roda migrations e cria o admin inicial.
+# Inicializa Git, roda migrations e cria o admin inicial.
 # ============================================================
 
 set -e
@@ -25,6 +25,18 @@ echo ""
 # Verificar pré-requisitos
 command -v docker >/dev/null 2>&1 || error "Docker não encontrado."
 docker compose version >/dev/null 2>&1 || error "Docker Compose v2 não encontrado."
+
+# Inicializar repositório Git (Hostinger não clona como repo Git)
+if [ ! -d ".git" ]; then
+    info "Inicializando repositório Git para futuras atualizações..."
+    git init
+    git remote add origin https://github.com/danielbfs/openclinic.git
+    git fetch origin main
+    git reset --hard origin/main
+    info "Repositório Git configurado. Use 'git pull origin main' para atualizar."
+else
+    info "Repositório Git já configurado."
+fi
 
 # Aguardar banco de dados
 info "Aguardando banco de dados ficar pronto..."
@@ -52,4 +64,5 @@ echo ""
 info "O Traefik externo da Hostinger cuida do SSL."
 info "Verifique se o domínio está acessível via HTTPS."
 echo ""
-warning "Guarde as credenciais do administrador exibidas acima!"
+warning "Credenciais iniciais: admin/admin e secretaria/secretaria"
+warning "Altere as senhas no primeiro acesso!"
