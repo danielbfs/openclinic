@@ -1,12 +1,17 @@
 """Authentication API endpoints."""
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ForbiddenError, UnauthorizedError
+from app.core.exceptions import UnauthorizedError
 from app.core.permissions import get_current_user, require_role
-from app.core.security import create_access_token, create_refresh_token, decode_token
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    verify_password,
+)
 from app.database import get_db
 from app.modules.auth.models import User
 from app.modules.auth.schemas import (
@@ -24,8 +29,8 @@ from app.modules.auth.service import (
     change_password,
     create_user,
     get_all_users,
-    get_user_by_email,
     get_user_by_id,
+    get_user_by_username,
     update_user,
 )
 
@@ -34,7 +39,7 @@ router = APIRouter()
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
-    user = await authenticate_user(db, body.email, body.password)
+    user = await authenticate_user(db, body.username, body.password)
     if not user:
         raise UnauthorizedError()
 
@@ -77,13 +82,10 @@ async def change_my_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.core.security import verify_password
-
     if not verify_password(body.current_password, current_user.password_hash):
         raise UnauthorizedError()
 
     if len(body.new_password) < 6:
-        from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="A nova senha deve ter no mínimo 6 caracteres.")
 
     await change_password(db, current_user, body.new_password)
@@ -107,17 +109,15 @@ async def create_new_user(
     db: AsyncSession = Depends(get_db),
 ):
     if body.role not in ("admin", "secretary"):
-        from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="Role deve ser 'admin' ou 'secretary'.")
 
-    existing = await get_user_by_email(db, body.email)
+    existing = await get_user_by_username(db, body.username)
     if existing:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=409, detail="E-mail já cadastrado.")
+        raise HTTPException(status_code=409, detail="Usuário já cadastrado.")
 
     return await create_user(
         db,
-        email=body.email,
+        username=body.username,
         full_name=body.full_name,
         password=body.password,
         role=body.role,
@@ -133,22 +133,19 @@ async def update_existing_user(
 ):
     user = await get_user_by_id(db, user_id)
     if not user:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
 
     if body.role is not None and body.role not in ("admin", "secretary"):
-        from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="Role deve ser 'admin' ou 'secretary'.")
 
-    if body.email is not None:
-        existing = await get_user_by_email(db, body.email)
+    if body.username is not None:
+        existing = await get_user_by_username(db, body.username)
         if existing and existing.id != user_id:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=409, detail="E-mail já cadastrado.")
+            raise HTTPException(status_code=409, detail="Usuário já cadastrado.")
 
     return await update_user(
         db, user,
-        email=body.email,
+        username=body.username,
         full_name=body.full_name,
         role=body.role,
         is_active=body.is_active,
@@ -164,7 +161,6 @@ async def admin_reset_password(
     """Admin reseta a senha de um usuário para o padrão do role."""
     user = await get_user_by_id(db, user_id)
     if not user:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
 
     default_password = "admin" if user.role == "admin" else "secretaria"
@@ -172,4 +168,4 @@ async def admin_reset_password(
     user.must_change_password = True
     await db.commit()
 
-    return MessageResponse(message=f"Senha resetada para o padrão. Usuário deverá alterar no próximo login.")
+    return MessageResponse(message="Senha resetada para o padrão. Usuário deverá alterar no próximo login.")

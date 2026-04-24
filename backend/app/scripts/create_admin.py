@@ -4,9 +4,9 @@ Cria os usuários iniciais do sistema (admin + secretária).
 Executar via:
   docker compose exec backend python -m app.scripts.create_admin
 
-Senhas padrão:
-  admin@openclinic.local    → admin
-  secretaria@openclinic.local → secretaria
+Credenciais padrão:
+  admin / admin
+  secretaria / secretaria
 
 IMPORTANTE: Altere as senhas no primeiro acesso!
 """
@@ -23,13 +23,13 @@ from app.core.security import hash_password
 
 INITIAL_USERS = [
     {
-        "email": "admin@openclinic.local",
+        "username": "admin",
         "full_name": "Administrador",
         "password": "admin",
         "role": "admin",
     },
     {
-        "email": "secretaria@openclinic.local",
+        "username": "secretaria",
         "full_name": "Secretária",
         "password": "secretaria",
         "role": "secretary",
@@ -45,16 +45,16 @@ async def create_initial_users():
     async with AsyncSessionLocal() as db:
         for user_data in INITIAL_USERS:
             result = await db.execute(
-                select(User).where(User.email == user_data["email"])
+                select(User).where(User.username == user_data["username"])
             )
             existing = result.scalar_one_or_none()
 
             if existing:
-                print(f"  [SKIP] {user_data['email']} já existe.")
+                print(f"  [SKIP] {user_data['username']} já existe.")
                 continue
 
             user = User(
-                email=user_data["email"],
+                username=user_data["username"],
                 full_name=user_data["full_name"],
                 password_hash=hash_password(user_data["password"]),
                 role=user_data["role"],
@@ -62,7 +62,7 @@ async def create_initial_users():
             )
             db.add(user)
             await db.commit()
-            print(f"  [OK]   {user_data['email']} criado (role: {user_data['role']})")
+            print(f"  [OK]   {user_data['username']} criado (role: {user_data['role']})")
 
     await engine.dispose()
 
@@ -76,8 +76,8 @@ def main():
     print("=" * 50)
     print("  CREDENCIAIS INICIAIS")
     print("=" * 50)
-    print(f"  Admin:      admin@openclinic.local / admin")
-    print(f"  Secretária: secretaria@openclinic.local / secretaria")
+    print(f"  Admin:      admin / admin")
+    print(f"  Secretária: secretaria / secretaria")
     print("")
     print("  ALTERE AS SENHAS NO PRIMEIRO ACESSO!")
     print("=" * 50)

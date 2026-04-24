@@ -2,13 +2,13 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 
 # --- Request schemas ---
 
 class LoginRequest(BaseModel):
-    email: str
+    username: str
     password: str
 
 
@@ -22,14 +22,14 @@ class ChangePasswordRequest(BaseModel):
 
 
 class CreateUserRequest(BaseModel):
-    email: EmailStr
+    username: str
     full_name: str
     password: str
     role: str  # 'admin' or 'secretary'
 
 
 class UpdateUserRequest(BaseModel):
-    email: EmailStr | None = None
+    username: str | None = None
     full_name: str | None = None
     role: str | None = None
     is_active: bool | None = None
@@ -45,7 +45,7 @@ class TokenResponse(BaseModel):
 
 class UserResponse(BaseModel):
     id: uuid.UUID
-    email: str
+    username: str
     full_name: str
     role: str
     is_active: bool

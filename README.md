@@ -64,10 +64,10 @@ Acesse `https://seu-dominio.com` — SSL provisionado automaticamente pelo Traef
 
 Após rodar `./install.sh`, os seguintes usuários são criados:
 
-| Usuário | E-mail | Senha | Role |
-|---|---|---|---|
-| Administrador | `admin@openclinic.local` | `admin` | admin |
-| Secretária | `secretaria@openclinic.local` | `secretaria` | secretary |
+| Usuário | Senha | Role |
+|---|---|---|
+| `admin` | `admin` | admin |
+| `secretaria` | `secretaria` | secretary |
 
 > **IMPORTANTE:** Altere as senhas no primeiro acesso via menu "Alterar Senha".
 

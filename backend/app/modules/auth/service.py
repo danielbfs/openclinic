@@ -8,8 +8,8 @@ from app.core.security import hash_password, verify_password
 from app.modules.auth.models import User
 
 
-async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
-    result = await db.execute(select(User).where(User.email == email))
+async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
+    result = await db.execute(select(User).where(User.username == username))
     return result.scalar_one_or_none()
 
 
@@ -23,8 +23,8 @@ async def get_all_users(db: AsyncSession) -> list[User]:
     return list(result.scalars().all())
 
 
-async def authenticate_user(db: AsyncSession, email: str, password: str) -> User | None:
-    user = await get_user_by_email(db, email)
+async def authenticate_user(db: AsyncSession, username: str, password: str) -> User | None:
+    user = await get_user_by_username(db, username)
     if not user or not user.is_active:
         return None
     if not verify_password(password, user.password_hash):
@@ -34,14 +34,14 @@ async def authenticate_user(db: AsyncSession, email: str, password: str) -> User
 
 async def create_user(
     db: AsyncSession,
-    email: str,
+    username: str,
     full_name: str,
     password: str,
     role: str,
     must_change_password: bool = True,
 ) -> User:
     user = User(
-        email=email,
+        username=username,
         full_name=full_name,
         password_hash=hash_password(password),
         role=role,
@@ -64,13 +64,13 @@ async def change_password(db: AsyncSession, user: User, new_password: str) -> Us
 async def update_user(
     db: AsyncSession,
     user: User,
-    email: str | None = None,
+    username: str | None = None,
     full_name: str | None = None,
     role: str | None = None,
     is_active: bool | None = None,
 ) -> User:
-    if email is not None:
-        user.email = email
+    if username is not None:
+        user.username = username
     if full_name is not None:
         user.full_name = full_name
     if role is not None:
