@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/admin/specialties", label: "Especialidades" },
   { href: "/admin/doctors", label: "Médicos" },
   { href: "/admin/follow-ups", label: "Follow-ups" },
+  { href: "/admin/reports", label: "Relatórios" },
   { href: "/admin/setup", label: "Setup" },
 ];
 
