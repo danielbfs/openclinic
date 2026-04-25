@@ -43,4 +43,10 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute="*/15"),
         "options": {"queue": "leads"},
     },
+    # Processa follow-ups pendentes a cada 2 minutos
+    "process-pending-followups": {
+        "task": "app.modules.followup.tasks.process_pending_followups",
+        "schedule": crontab(minute="*/2"),
+        "options": {"queue": "followup"},
+    },
 }

@@ -12,11 +12,12 @@ from app.database import Base
 
 # Import all models so they're registered in Base.metadata
 from app.modules.auth.models import User  # noqa
-from app.modules.admin.models import Specialty  # noqa
+from app.modules.admin.models import Specialty, SystemConfig  # noqa
 from app.modules.scheduling.models import Doctor, DoctorSchedule, ScheduleBlock, Appointment  # noqa
 from app.modules.crm.models import Patient  # noqa
 from app.modules.leads.models import Lead, LeadInteraction  # noqa
 from app.modules.messaging.models import Conversation, Message  # noqa
+from app.modules.followup.models import FollowupRule, FollowupJob  # noqa
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

@@ -43,6 +43,7 @@ from app.modules.crm.router import router as patients_router
 from app.modules.leads.router import router as leads_router
 from app.modules.messaging.router import router as webhooks_router
 from app.modules.admin.setup_router import router as admin_setup_router
+from app.modules.followup.router import router as followup_router
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(specialties_router, prefix="/api/v1/specialties", tags=["specialties"])
@@ -51,6 +52,7 @@ app.include_router(patients_router, prefix="/api/v1/patients", tags=["patients"]
 app.include_router(leads_router, prefix="/api/v1/leads", tags=["leads"])
 app.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(admin_setup_router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(followup_router, prefix="/api/v1/followup", tags=["followup"])
 
 
 @app.get("/health")
