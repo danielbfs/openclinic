@@ -7,12 +7,13 @@ import { AppHeader } from "@/components/app-header";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Painel" },
-  { href: "/admin/users", label: "Usuários" },
+  { href: "/admin/doctors", label: "Médicos / Agendas" },
   { href: "/admin/specialties", label: "Especialidades" },
-  { href: "/admin/doctors", label: "Médicos" },
+  { href: "/admin/chatbot", label: "Chatbot / IA" },
   { href: "/admin/follow-ups", label: "Follow-ups" },
+  { href: "/admin/users", label: "Usuários" },
   { href: "/admin/reports", label: "Relatórios" },
-  { href: "/admin/setup", label: "Setup" },
+  { href: "/admin/setup", label: "Configurações" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

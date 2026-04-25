@@ -21,11 +21,6 @@ interface SLASettings {
   hours: number;
 }
 
-interface AISettings {
-  type: string;
-  model: string;
-}
-
 const TIMEZONES = [
   "America/Sao_Paulo",
   "America/Fortaleza",
@@ -37,20 +32,12 @@ const TIMEZONES = [
   "America/Recife",
 ];
 
-const AI_MODELS = [
-  { value: "gpt-4o", label: "GPT-4o" },
-  { value: "gpt-4o-mini", label: "GPT-4o Mini (recomendado)" },
-  { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
-  { value: "local", label: "LLM Local (Ollama)" },
-];
-
 export default function SetupPage() {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [webhookResult, setWebhookResult] = useState<string | null>(null);
   const [settingWebhook, setSettingWebhook] = useState(false);
 
-  // Settings forms
   const [clinic, setClinic] = useState<ClinicSettings>({
     name: "",
     timezone: "America/Sao_Paulo",
@@ -58,11 +45,9 @@ export default function SetupPage() {
     address: "",
   });
   const [sla, setSla] = useState<SLASettings>({ hours: 2 });
-  const [ai, setAi] = useState<AISettings>({ type: "openai", model: "gpt-4o-mini" });
 
   const [savingClinic, setSavingClinic] = useState(false);
   const [savingSla, setSavingSla] = useState(false);
-  const [savingAi, setSavingAi] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -80,7 +65,6 @@ export default function SetupPage() {
         const s = settingsRes.value.data;
         setClinic(s.clinic);
         setSla(s.sla);
-        setAi(s.ai);
       }
     } finally {
       setLoading(false);
@@ -116,18 +100,6 @@ export default function SetupPage() {
     }
   }
 
-  async function saveAi() {
-    setSavingAi(true);
-    try {
-      await api.patch("/admin/settings/ai", ai);
-      showSaved("Configuração de IA salva.");
-    } catch {
-      alert("Erro ao salvar.");
-    } finally {
-      setSavingAi(false);
-    }
-  }
-
   async function setupTelegramWebhook() {
     setSettingWebhook(true);
     setWebhookResult(null);
@@ -149,7 +121,7 @@ export default function SetupPage() {
 
   return (
     <main className="p-8 max-w-2xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Setup da Clínica</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Configurações</h1>
 
       {savedMsg && (
         <div className="mb-4 bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-2 rounded-lg">
@@ -239,69 +211,34 @@ export default function SetupPage() {
           </div>
         </div>
 
-        {/* AI Configuration */}
-        <div className="bg-white border rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Inteligência Artificial</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Modelo de IA usado pelo assistente virtual para conversar com os pacientes.
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Provedor</label>
-              <select
-                value={ai.type}
-                onChange={(e) => setAi({ ...ai, type: e.target.value })}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="openai">OpenAI</option>
-                <option value="local">LLM Local (Ollama)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Modelo</label>
-              <select
-                value={ai.model}
-                onChange={(e) => setAi({ ...ai, model: e.target.value })}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              >
-                {AI_MODELS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <button
-            onClick={saveAi}
-            disabled={savingAi}
-            className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
-            {savingAi ? "Salvando..." : "Salvar Configuração de IA"}
-          </button>
-        </div>
-
         {/* Integration Status */}
         <div className="bg-white border rounded-lg p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Status das Integrações</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Essas integrações são configuradas via variáveis de ambiente no <code className="bg-gray-200 px-1 rounded">.env</code>.
+            Para alterar, edite o arquivo e reinicie os containers.
+          </p>
           <div className="space-y-3">
             <StatusRow label="Domínio" value={status?.domain || "—"} ok={!!status?.domain} />
             <StatusRow
-              label="Telegram Bot"
-              value={status?.telegram_configured ? "Configurado" : "Não configurado"}
+              label="Telegram Bot Token"
+              value={status?.telegram_configured ? "Configurado (.env)" : "Não configurado"}
               ok={!!status?.telegram_configured}
             />
             <StatusRow
-              label="OpenAI"
-              value={status?.openai_configured ? "Configurado" : "Não configurado"}
+              label="OpenAI API Key"
+              value={status?.openai_configured ? "Configurado (.env)" : "Não configurado"}
               ok={!!status?.openai_configured}
             />
             <StatusRow
-              label="LLM Local"
-              value={status?.local_llm_configured ? "Configurado" : "Não configurado"}
+              label="LLM Local (Ollama)"
+              value={status?.local_llm_configured ? "Configurado (.env)" : "Não configurado"}
               ok={!!status?.local_llm_configured}
             />
           </div>
+          <p className="text-xs text-gray-400 mt-3">
+            O modelo de IA e o provedor podem ser escolhidos na aba "Chatbot / IA".
+          </p>
         </div>
 
         {/* Telegram Webhook */}
@@ -310,6 +247,7 @@ export default function SetupPage() {
             <h2 className="text-lg font-semibold text-gray-900 mb-2">Telegram Webhook</h2>
             <p className="text-sm text-gray-500 mb-4">
               Registre o webhook para que o bot Telegram receba mensagens dos pacientes.
+              Esse registro precisa ser feito apenas uma vez (ou ao trocar de domínio).
             </p>
             <button
               onClick={setupTelegramWebhook}
@@ -326,18 +264,20 @@ export default function SetupPage() {
 
         {/* Instructions */}
         <div className="bg-gray-50 border rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Como configurar</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Guia Rápido</h2>
           <ol className="text-sm text-gray-600 space-y-2 list-decimal list-inside">
             <li>
-              Configure as variáveis de ambiente no arquivo{" "}
-              <code className="bg-gray-200 px-1 rounded">.env</code>
+              Configure as variáveis de ambiente no{" "}
+              <code className="bg-gray-200 px-1 rounded">.env</code>{" "}
+              (TELEGRAM_BOT_TOKEN, OPENAI_API_KEY)
             </li>
             <li>
               Reinicie os containers:{" "}
               <code className="bg-gray-200 px-1 rounded">docker compose up -d</code>
             </li>
             <li>Preencha os dados da clínica acima e salve</li>
-            <li>Registre o webhook do Telegram (se configurado)</li>
+            <li>Vá em "Chatbot / IA" para escolher o modelo e personalizar o prompt</li>
+            <li>Registre o webhook do Telegram (botão acima)</li>
             <li>Teste enviando uma mensagem para o bot no Telegram</li>
           </ol>
         </div>

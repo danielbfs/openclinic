@@ -3,18 +3,7 @@ from datetime import datetime, timezone
 
 from app.config import settings
 
-
-def build_system_prompt() -> str:
-    """Build the system prompt with current clinic context."""
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    tz = settings.CLINIC_TIMEZONE
-
-    return f"""Você é o assistente virtual de uma clínica médica.
-
-Fuso horário da clínica: {tz}
-Data/hora atual: {now}
-
-Suas responsabilidades:
+DEFAULT_PROMPT = """Suas responsabilidades:
 1. Atender pacientes com cordialidade e profissionalismo
 2. Verificar disponibilidade e agendar consultas
 3. Confirmar, cancelar ou remarcar consultas existentes
@@ -32,3 +21,25 @@ Regras IMPORTANTES:
 - Seja conciso — mensagens curtas e diretas são melhores em chat
 - Formate datas como "segunda-feira, 28 de abril às 14:00"
 """
+
+
+def build_system_prompt(
+    custom_prompt: str = "",
+    clinic_name: str = "",
+    clinic_timezone: str = "",
+) -> str:
+    """Build the system prompt with current clinic context."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    tz = clinic_timezone or settings.CLINIC_TIMEZONE
+    name = clinic_name or "a clínica"
+
+    header = f"Você é o assistente virtual de {name}."
+    context = f"""
+Fuso horário da clínica: {tz}
+Data/hora atual: {now}
+"""
+
+    # Use custom prompt from admin if provided, otherwise use default
+    instructions = custom_prompt.strip() if custom_prompt.strip() else DEFAULT_PROMPT
+
+    return f"{header}\n{context}\n{instructions}"

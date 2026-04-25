@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.modules.ai.config_loader import load_ai_config, load_chatbot_config, load_clinic_config
 from app.modules.ai.prompts import build_system_prompt
 from app.modules.ai.session import load_session, save_session
 from app.modules.ai.tools import TOOL_DEFINITIONS, execute_tool
@@ -13,11 +14,15 @@ from app.modules.crm.models import Patient
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_CALLS = 3  # prevent infinite loops
 
-
-def _get_client() -> AsyncOpenAI:
-    """Get the appropriate LLM client."""
+def _get_client(ai_config: dict) -> AsyncOpenAI:
+    """Get the appropriate LLM client based on DB config."""
+    if ai_config.get("use_local_llm") and ai_config.get("local_llm_url"):
+        return AsyncOpenAI(
+            base_url=ai_config["local_llm_url"],
+            api_key="not-needed",
+        )
+    # Fallback: check env for local LLM
     if settings.LOCAL_LLM_BASE_URL:
         return AsyncOpenAI(
             base_url=settings.LOCAL_LLM_BASE_URL,
@@ -26,10 +31,12 @@ def _get_client() -> AsyncOpenAI:
     return AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 
-def _get_model() -> str:
+def _get_model(ai_config: dict) -> str:
+    if ai_config.get("use_local_llm") and ai_config.get("local_llm_model"):
+        return ai_config["local_llm_model"]
     if settings.LOCAL_LLM_BASE_URL and settings.LOCAL_LLM_MODEL:
         return settings.LOCAL_LLM_MODEL
-    return settings.OPENAI_MODEL
+    return ai_config.get("model") or settings.OPENAI_MODEL
 
 
 async def process_message(
@@ -39,20 +46,34 @@ async def process_message(
 ) -> str:
     """Process an incoming patient message and return the AI response."""
     if not settings.OPENAI_API_KEY and not settings.LOCAL_LLM_BASE_URL:
-        logger.warning("No LLM configured (OPENAI_API_KEY or LOCAL_LLM_BASE_URL)")
-        return (
-            "O assistente virtual está temporariamente indisponível. "
-            "Por favor, entre em contato pelo telefone da clínica."
-        )
+        # Also check DB config
+        ai_config = await load_ai_config(db)
+        if not ai_config.get("use_local_llm") or not ai_config.get("local_llm_url"):
+            logger.warning("No LLM configured (OPENAI_API_KEY or LOCAL_LLM_BASE_URL)")
+            return (
+                "O assistente virtual está temporariamente indisponível. "
+                "Por favor, entre em contato pelo telefone da clínica."
+            )
+    else:
+        ai_config = await load_ai_config(db)
 
-    client = _get_client()
-    model = _get_model()
+    chatbot_config = await load_chatbot_config(db)
+    clinic_config = await load_clinic_config(db)
+
+    client = _get_client(ai_config)
+    model = _get_model(ai_config)
+    max_tool_calls = chatbot_config.get("max_tool_calls", 3)
+    temperature = chatbot_config.get("temperature", 0.3)
 
     # Load conversation history
     history = await load_session(patient.id)
 
     # Build messages
-    system_prompt = build_system_prompt()
+    system_prompt = build_system_prompt(
+        custom_prompt=chatbot_config.get("system_prompt", ""),
+        clinic_name=clinic_config.get("name", ""),
+        clinic_timezone=clinic_config.get("timezone", settings.CLINIC_TIMEZONE),
+    )
     patient_context = (
         f"Paciente atual: {patient.full_name or 'nome não informado'} "
         f"(ID: {patient.id})"
@@ -69,13 +90,13 @@ async def process_message(
     response_text = ""
 
     try:
-        while tool_calls_count <= MAX_TOOL_CALLS:
+        while tool_calls_count <= max_tool_calls:
             completion = await client.chat.completions.create(
                 model=model,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
                 tool_choice="auto",
-                temperature=0.3,
+                temperature=temperature,
                 max_tokens=1000,
             )
 

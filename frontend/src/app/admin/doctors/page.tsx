@@ -33,6 +33,12 @@ export default function DoctorsPage() {
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [savingSchedule, setSavingSchedule] = useState(false);
 
+  // Blocks modal
+  const [blocksDoctor, setBlocksDoctor] = useState<Doctor | null>(null);
+  const [blocks, setBlocks] = useState<{ id: string; starts_at: string; ends_at: string; reason: string | null }[]>([]);
+  const [blockForm, setBlockForm] = useState({ starts_at: "", ends_at: "", reason: "" });
+  const [savingBlock, setSavingBlock] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -151,6 +157,47 @@ export default function DoctorsPage() {
       alert("Erro ao salvar horários.");
     } finally {
       setSavingSchedule(false);
+    }
+  }
+
+  async function openBlocks(doc: Doctor) {
+    setBlocksDoctor(doc);
+    setBlockForm({ starts_at: "", ends_at: "", reason: "" });
+    try {
+      const { data } = await api.get(`/scheduling/blocks?doctor_id=${doc.id}`);
+      setBlocks(data);
+    } catch {
+      setBlocks([]);
+    }
+  }
+
+  async function addBlock() {
+    if (!blocksDoctor || !blockForm.starts_at || !blockForm.ends_at) return;
+    setSavingBlock(true);
+    try {
+      await api.post("/scheduling/blocks", {
+        doctor_id: blocksDoctor.id,
+        starts_at: blockForm.starts_at,
+        ends_at: blockForm.ends_at,
+        reason: blockForm.reason || null,
+      });
+      setBlockForm({ starts_at: "", ends_at: "", reason: "" });
+      const { data } = await api.get(`/scheduling/blocks?doctor_id=${blocksDoctor.id}`);
+      setBlocks(data);
+    } catch {
+      alert("Erro ao criar bloqueio.");
+    } finally {
+      setSavingBlock(false);
+    }
+  }
+
+  async function removeBlock(blockId: string) {
+    if (!blocksDoctor) return;
+    try {
+      await api.delete(`/scheduling/blocks/${blockId}`);
+      setBlocks(blocks.filter((b) => b.id !== blockId));
+    } catch {
+      alert("Erro ao remover bloqueio.");
     }
   }
 
@@ -306,6 +353,95 @@ export default function DoctorsPage() {
         </div>
       )}
 
+      {/* Blocks Modal */}
+      {blocksDoctor && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-bold text-gray-900 mb-1">
+              Bloqueios — {blocksDoctor.full_name}
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Férias, reuniões, feriados ou qualquer período em que o médico não atende.
+            </p>
+
+            {/* Existing blocks */}
+            {blocks.length === 0 ? (
+              <p className="text-sm text-gray-400 mb-4">Nenhum bloqueio cadastrado.</p>
+            ) : (
+              <div className="space-y-2 mb-4">
+                {blocks.map((block) => (
+                  <div key={block.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                    <div>
+                      <div className="text-sm text-gray-900">
+                        {new Date(block.starts_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        {" — "}
+                        {new Date(block.ends_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                      {block.reason && (
+                        <div className="text-xs text-gray-500">{block.reason}</div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => removeBlock(block.id)}
+                      className="text-red-500 hover:text-red-700 text-sm px-2"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add block form */}
+            <div className="border-t pt-4 mb-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Novo Bloqueio</h3>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">In��cio</label>
+                  <input
+                    type="datetime-local"
+                    value={blockForm.starts_at}
+                    onChange={(e) => setBlockForm({ ...blockForm, starts_at: e.target.value })}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Fim</label>
+                  <input
+                    type="datetime-local"
+                    value={blockForm.ends_at}
+                    onChange={(e) => setBlockForm({ ...blockForm, ends_at: e.target.value })}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  />
+                </div>
+              </div>
+              <input
+                value={blockForm.reason}
+                onChange={(e) => setBlockForm({ ...blockForm, reason: e.target.value })}
+                placeholder="Motivo (opcional)"
+                className="w-full border rounded px-2 py-1.5 text-sm mb-2"
+              />
+              <button
+                onClick={addBlock}
+                disabled={savingBlock || !blockForm.starts_at || !blockForm.ends_at}
+                className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                {savingBlock ? "Salvando..." : "Adicionar Bloqueio"}
+              </button>
+            </div>
+
+            <div className="flex justify-end border-t pt-4">
+              <button
+                onClick={() => setBlocksDoctor(null)}
+                className="text-sm text-gray-500 px-4 py-2"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Doctors Table */}
       <div className="bg-white border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
@@ -349,6 +485,9 @@ export default function DoctorsPage() {
                       </button>
                       <button onClick={() => openSchedule(doc)} className="text-xs text-purple-600 hover:underline">
                         Horários
+                      </button>
+                      <button onClick={() => openBlocks(doc)} className="text-xs text-red-600 hover:underline">
+                        Bloqueios
                       </button>
                       <button onClick={() => toggleActive(doc)} className="text-xs text-yellow-600 hover:underline">
                         {doc.is_active ? "Desativar" : "Ativar"}

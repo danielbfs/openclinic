@@ -48,12 +48,22 @@ class SLASettings(BaseModel):
 class AISettings(BaseModel):
     type: str = "openai"
     model: str = "gpt-4o-mini"
+    use_local_llm: bool = False
+    local_llm_url: str = ""
+    local_llm_model: str = ""
+
+
+class ChatbotSettings(BaseModel):
+    system_prompt: str = ""
+    max_tool_calls: int = 3
+    temperature: float = 0.3
 
 
 class AllSettings(BaseModel):
     clinic: ClinicSettings
     sla: SLASettings
     ai: AISettings
+    chatbot: ChatbotSettings
 
 
 # --- Helpers ---
@@ -117,11 +127,13 @@ async def get_all_settings(
     clinic_raw = await _get_config(db, "clinic_info")
     sla_raw = await _get_config(db, "sla")
     ai_raw = await _get_config(db, "ai_provider")
+    chatbot_raw = await _get_config(db, "chatbot")
 
     return AllSettings(
         clinic=ClinicSettings(**clinic_raw) if clinic_raw else ClinicSettings(),
         sla=SLASettings(**sla_raw) if sla_raw else SLASettings(),
         ai=AISettings(**ai_raw) if ai_raw else AISettings(),
+        chatbot=ChatbotSettings(**chatbot_raw) if chatbot_raw else ChatbotSettings(),
     )
 
 
@@ -155,4 +167,15 @@ async def update_ai_settings(
 ):
     data = payload.model_dump()
     await _set_config(db, "ai_provider", data, current_user.id)
+    return payload
+
+
+@router.patch("/settings/chatbot", response_model=ChatbotSettings)
+async def update_chatbot_settings(
+    payload: ChatbotSettings,
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    data = payload.model_dump()
+    await _set_config(db, "chatbot", data, current_user.id)
     return payload
