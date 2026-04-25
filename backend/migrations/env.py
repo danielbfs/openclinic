@@ -16,6 +16,7 @@ from app.modules.admin.models import Specialty  # noqa
 from app.modules.scheduling.models import Doctor, DoctorSchedule, ScheduleBlock, Appointment  # noqa
 from app.modules.crm.models import Patient  # noqa
 from app.modules.leads.models import Lead, LeadInteraction  # noqa
+from app.modules.messaging.models import Conversation, Message  # noqa
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

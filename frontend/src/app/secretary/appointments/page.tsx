@@ -1,0 +1,383 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import type { Doctor } from "@/types";
+
+interface Appointment {
+  id: string;
+  patient_id: string;
+  doctor_id: string;
+  starts_at: string;
+  ends_at: string;
+  status: string;
+  source: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+interface Slot {
+  starts_at: string;
+  ends_at: string;
+  doctor_id?: string;
+  doctor_name?: string;
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  scheduled: "Agendado",
+  confirmed: "Confirmado",
+  completed: "Concluído",
+  cancelled: "Cancelado",
+  no_show: "Não compareceu",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  scheduled: "bg-blue-100 text-blue-700",
+  confirmed: "bg-green-100 text-green-700",
+  completed: "bg-gray-100 text-gray-700",
+  cancelled: "bg-red-100 text-red-500",
+  no_show: "bg-orange-100 text-orange-700",
+};
+
+export default function AppointmentsPage() {
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Create form
+  const [showCreate, setShowCreate] = useState(false);
+  const [createStep, setCreateStep] = useState(1); // 1=form, 2=pick slot
+  const [createForm, setCreateForm] = useState({
+    patient_phone: "",
+    doctor_id: "",
+    date: "",
+    notes: "",
+  });
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Status change
+  const [changingStatus, setChangingStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  async function fetchData() {
+    try {
+      const [apptRes, docsRes] = await Promise.allSettled([
+        api.get("/scheduling/appointments"),
+        api.get("/scheduling/doctors?active_only=true"),
+      ]);
+      if (apptRes.status === "fulfilled") setAppointments(apptRes.value.data);
+      if (docsRes.status === "fulfilled") setDoctors(docsRes.value.data);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function searchSlots() {
+    if (!createForm.doctor_id || !createForm.date) return;
+    setLoadingSlots(true);
+    try {
+      const dateFrom = `${createForm.date}T00:00:00Z`;
+      const dateTo = `${createForm.date}T23:59:59Z`;
+      const { data } = await api.get(
+        `/scheduling/slots?doctor_id=${createForm.doctor_id}&date_from=${dateFrom}&date_to=${dateTo}`
+      );
+      setSlots(data);
+      setCreateStep(2);
+    } catch {
+      alert("Erro ao buscar horários.");
+    } finally {
+      setLoadingSlots(false);
+    }
+  }
+
+  async function createAppointment() {
+    if (!selectedSlot || !createForm.patient_phone) return;
+    setSaving(true);
+    try {
+      // First find or note patient by phone
+      const patientsRes = await api.get(`/patients/?search=${encodeURIComponent(createForm.patient_phone)}`);
+      const patients = patientsRes.data;
+
+      let patientId: string;
+      if (patients.length > 0) {
+        patientId = patients[0].id;
+      } else {
+        // Create patient
+        const newPatient = await api.post("/patients/", {
+          phone: createForm.patient_phone,
+          channel: "whatsapp",
+        });
+        patientId = newPatient.data.id;
+      }
+
+      await api.post("/scheduling/appointments", {
+        patient_id: patientId,
+        doctor_id: createForm.doctor_id,
+        starts_at: selectedSlot.starts_at,
+        ends_at: selectedSlot.ends_at,
+        notes: createForm.notes || null,
+        source: "secretary",
+      });
+
+      setShowCreate(false);
+      setCreateStep(1);
+      setCreateForm({ patient_phone: "", doctor_id: "", date: "", notes: "" });
+      setSelectedSlot(null);
+      setSlots([]);
+      fetchData();
+    } catch {
+      alert("Erro ao criar agendamento.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateStatus(apptId: string, newStatus: string) {
+    setChangingStatus(apptId);
+    try {
+      await api.patch(`/scheduling/appointments/${apptId}`, { status: newStatus });
+      fetchData();
+    } catch {
+      alert("Erro ao alterar status.");
+    } finally {
+      setChangingStatus(null);
+    }
+  }
+
+  async function cancelAppointment(apptId: string) {
+    if (!confirm("Deseja cancelar este agendamento?")) return;
+    try {
+      await api.delete(`/scheduling/appointments/${apptId}`);
+      fetchData();
+    } catch {
+      alert("Erro ao cancelar.");
+    }
+  }
+
+  const doctorName = (id: string) => doctors.find((d) => d.id === id)?.full_name || "—";
+
+  return (
+    <main className="p-8">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Agendamentos</h1>
+        <button
+          onClick={() => {
+            setShowCreate(!showCreate);
+            setCreateStep(1);
+            setSlots([]);
+            setSelectedSlot(null);
+          }}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
+        >
+          {showCreate ? "Cancelar" : "Novo Agendamento"}
+        </button>
+      </div>
+
+      {/* Create Appointment Flow */}
+      {showCreate && (
+        <div className="bg-white border rounded-lg p-4 mb-6">
+          {createStep === 1 ? (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700">1. Selecione médico e data</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Telefone do Paciente *</label>
+                  <input
+                    value={createForm.patient_phone}
+                    onChange={(e) => setCreateForm({ ...createForm, patient_phone: e.target.value })}
+                    required
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    placeholder="11999999999"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Médico *</label>
+                  <select
+                    value={createForm.doctor_id}
+                    onChange={(e) => setCreateForm({ ...createForm, doctor_id: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">Selecione...</option>
+                    {doctors.map((d) => (
+                      <option key={d.id} value={d.id}>{d.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Data *</label>
+                  <input
+                    type="date"
+                    value={createForm.date}
+                    onChange={(e) => setCreateForm({ ...createForm, date: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Observações</label>
+                  <input
+                    value={createForm.notes}
+                    onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    placeholder="Opcional"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={searchSlots}
+                disabled={!createForm.doctor_id || !createForm.date || !createForm.patient_phone || loadingSlots}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loadingSlots ? "Buscando..." : "Ver Horários Disponíveis"}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-700">2. Selecione o horário</h3>
+                <button onClick={() => setCreateStep(1)} className="text-xs text-blue-600 hover:underline">
+                  &larr; Voltar
+                </button>
+              </div>
+              {slots.length === 0 ? (
+                <p className="text-sm text-gray-400">Nenhum horário disponível nesta data.</p>
+              ) : (
+                <div className="grid grid-cols-4 gap-2">
+                  {slots.map((slot, idx) => {
+                    const time = new Date(slot.starts_at).toLocaleTimeString("pt-BR", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    });
+                    const isSelected = selectedSlot?.starts_at === slot.starts_at;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => setSelectedSlot(slot)}
+                        className={`px-3 py-2 rounded-lg border text-sm transition-colors ${
+                          isSelected
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        {time}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {selectedSlot && (
+                <button
+                  onClick={createAppointment}
+                  disabled={saving}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                >
+                  {saving ? "Agendando..." : "Confirmar Agendamento"}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Appointments List */}
+      {loading ? (
+        <p className="text-gray-400">Carregando...</p>
+      ) : appointments.length === 0 ? (
+        <p className="text-gray-400">Nenhum agendamento encontrado.</p>
+      ) : (
+        <div className="bg-white border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Data / Hora</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Médico</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Status</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Origem</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {appointments.map((appt) => (
+                <tr key={appt.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900">
+                      {new Date(appt.starts_at).toLocaleDateString("pt-BR", {
+                        weekday: "short",
+                        day: "2-digit",
+                        month: "2-digit",
+                      })}
+                    </div>
+                    <div className="text-gray-400">
+                      {new Date(appt.starts_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                      {" — "}
+                      {new Date(appt.ends_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{doctorName(appt.doctor_id)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[appt.status] || "bg-gray-100"}`}>
+                      {STATUS_LABELS[appt.status] || appt.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">
+                    {appt.source === "ai_chat" ? "IA" : appt.source === "secretary" ? "Secretária" : appt.source || "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      {appt.status === "scheduled" && (
+                        <>
+                          <button
+                            onClick={() => updateStatus(appt.id, "confirmed")}
+                            disabled={changingStatus === appt.id}
+                            className="text-xs text-green-600 hover:underline"
+                          >
+                            Confirmar
+                          </button>
+                          <button
+                            onClick={() => cancelAppointment(appt.id)}
+                            className="text-xs text-red-600 hover:underline"
+                          >
+                            Cancelar
+                          </button>
+                        </>
+                      )}
+                      {appt.status === "confirmed" && (
+                        <>
+                          <button
+                            onClick={() => updateStatus(appt.id, "completed")}
+                            disabled={changingStatus === appt.id}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            Concluir
+                          </button>
+                          <button
+                            onClick={() => updateStatus(appt.id, "no_show")}
+                            disabled={changingStatus === appt.id}
+                            className="text-xs text-orange-600 hover:underline"
+                          >
+                            No-show
+                          </button>
+                          <button
+                            onClick={() => cancelAppointment(appt.id)}
+                            className="text-xs text-red-600 hover:underline"
+                          >
+                            Cancelar
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </main>
+  );
+}

@@ -78,7 +78,7 @@ services:
       - internal
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.openclinic-backend.rule=Host(`${DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/webhooks`) || PathPrefix(`/health`) || PathPrefix(`/docs`) || PathPrefix(`/redoc`) || PathPrefix(`/openapi.json`))"
+      - "traefik.http.routers.openclinic-backend.rule=Host(`${DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/webhooks`) || PathPrefix(`/health`))"
       - "traefik.http.routers.openclinic-backend.tls=true"
       - "traefik.http.routers.openclinic-backend.tls.certresolver=letsencrypt"
       - "traefik.http.services.openclinic-backend.loadbalancer.server.url=http://127.0.0.1:8000"

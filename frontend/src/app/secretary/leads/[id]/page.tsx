@@ -1,0 +1,500 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { api } from "@/lib/api";
+import type { Lead, LeadInteraction } from "@/types";
+
+const STATUS_OPTIONS = [
+  { value: "novo", label: "Novo" },
+  { value: "em_contato", label: "Em Contato" },
+  { value: "orcamento_enviado", label: "Orçamento Enviado" },
+  { value: "negociando", label: "Negociando" },
+  { value: "convertido", label: "Convertido" },
+  { value: "perdido", label: "Perdido" },
+];
+
+const STATUS_COLORS: Record<string, string> = {
+  novo: "bg-blue-500",
+  em_contato: "bg-yellow-500",
+  orcamento_enviado: "bg-purple-500",
+  negociando: "bg-orange-500",
+  convertido: "bg-green-500",
+  perdido: "bg-gray-400",
+};
+
+const INTERACTION_TYPES = [
+  { value: "nota", label: "Nota" },
+  { value: "ligacao", label: "Ligação" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "email", label: "E-mail" },
+  { value: "reuniao", label: "Reunião" },
+  { value: "outro", label: "Outro" },
+];
+
+const CHANNEL_LABELS: Record<string, string> = {
+  telegram: "Telegram",
+  whatsapp: "WhatsApp",
+  google_ads: "Google Ads",
+  meta_ads: "Meta Ads",
+  instagram: "Instagram",
+  site: "Site",
+  indicacao: "Indicação",
+  outro: "Outro",
+};
+
+export default function LeadDetailPage() {
+  const { id } = useParams();
+  const router = useRouter();
+  const [lead, setLead] = useState<Lead | null>(null);
+  const [interactions, setInteractions] = useState<LeadInteraction[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Edit state
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    full_name: "",
+    phone: "",
+    email: "",
+    description: "",
+    quote_value: "",
+    next_followup_at: "",
+  });
+
+  // Interaction form
+  const [showInteraction, setShowInteraction] = useState(false);
+  const [interactionForm, setInteractionForm] = useState({
+    type: "nota",
+    content: "",
+    next_action: "",
+  });
+
+  // Pipeline actions
+  const [showLostModal, setShowLostModal] = useState(false);
+  const [lostReason, setLostReason] = useState("");
+  const [showConvertModal, setShowConvertModal] = useState(false);
+  const [convertName, setConvertName] = useState("");
+
+  useEffect(() => {
+    if (id) fetchLead();
+  }, [id]);
+
+  async function fetchLead() {
+    setLoading(true);
+    try {
+      const [leadRes, intRes] = await Promise.allSettled([
+        api.get(`/leads/${id}`),
+        api.get(`/leads/${id}/interactions`),
+      ]);
+      if (leadRes.status === "fulfilled") {
+        const l = leadRes.value.data;
+        setLead(l);
+        setEditForm({
+          full_name: l.full_name || "",
+          phone: l.phone || "",
+          email: l.email || "",
+          description: l.description || "",
+          quote_value: l.quote_value?.toString() || "",
+          next_followup_at: l.next_followup_at?.slice(0, 16) || "",
+        });
+        setConvertName(l.full_name || "");
+      }
+      if (intRes.status === "fulfilled") {
+        setInteractions(intRes.value.data);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveEdit() {
+    if (!lead) return;
+    try {
+      await api.patch(`/leads/${lead.id}`, {
+        full_name: editForm.full_name || null,
+        phone: editForm.phone,
+        email: editForm.email || null,
+        description: editForm.description || null,
+        quote_value: editForm.quote_value ? parseFloat(editForm.quote_value) : null,
+        next_followup_at: editForm.next_followup_at || null,
+      });
+      setEditing(false);
+      fetchLead();
+    } catch {
+      alert("Erro ao salvar.");
+    }
+  }
+
+  async function changeStatus(newStatus: string) {
+    if (!lead) return;
+    if (newStatus === "perdido") {
+      setShowLostModal(true);
+      return;
+    }
+    if (newStatus === "convertido") {
+      setShowConvertModal(true);
+      return;
+    }
+    try {
+      await api.patch(`/leads/${lead.id}`, { status: newStatus });
+      fetchLead();
+    } catch {
+      alert("Erro ao alterar status.");
+    }
+  }
+
+  async function handleContact() {
+    if (!lead) return;
+    try {
+      await api.post(`/leads/${lead.id}/contact`, { notes: "Primeiro contato realizado." });
+      fetchLead();
+    } catch {
+      alert("Erro ao registrar contato.");
+    }
+  }
+
+  async function handleLost() {
+    if (!lead || !lostReason.trim()) return;
+    try {
+      await api.post(`/leads/${lead.id}/lost`, { lost_reason: lostReason });
+      setShowLostModal(false);
+      setLostReason("");
+      fetchLead();
+    } catch {
+      alert("Erro ao marcar como perdido.");
+    }
+  }
+
+  async function handleConvert() {
+    if (!lead) return;
+    try {
+      await api.post(`/leads/${lead.id}/convert`, { patient_name: convertName || null });
+      setShowConvertModal(false);
+      fetchLead();
+    } catch {
+      alert("Erro ao converter lead.");
+    }
+  }
+
+  async function addInteraction() {
+    if (!lead || !interactionForm.content.trim()) return;
+    try {
+      await api.post(`/leads/${lead.id}/interactions`, {
+        type: interactionForm.type,
+        content: interactionForm.content,
+        next_action: interactionForm.next_action || null,
+      });
+      setInteractionForm({ type: "nota", content: "", next_action: "" });
+      setShowInteraction(false);
+      fetchLead();
+    } catch {
+      alert("Erro ao registrar interação.");
+    }
+  }
+
+  if (loading) return <div className="p-8 text-gray-400">Carregando...</div>;
+  if (!lead) return <div className="p-8 text-gray-400">Lead não encontrado.</div>;
+
+  return (
+    <main className="p-8 max-w-4xl">
+      {/* Back button */}
+      <button
+        onClick={() => router.push("/secretary")}
+        className="text-sm text-blue-600 hover:underline mb-4 block"
+      >
+        &larr; Voltar para Leads
+      </button>
+
+      {/* Header */}
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {lead.full_name || "Lead sem nome"}
+          </h1>
+          <p className="text-gray-500">{lead.phone} {lead.email ? `| ${lead.email}` : ""}</p>
+          <div className="flex items-center gap-2 mt-2">
+            <span className={`w-3 h-3 rounded-full ${STATUS_COLORS[lead.status]}`} />
+            <span className="text-sm font-medium text-gray-700">
+              {STATUS_OPTIONS.find((s) => s.value === lead.status)?.label}
+            </span>
+            <span className="text-xs text-gray-400 ml-2">
+              via {CHANNEL_LABELS[lead.channel] || lead.channel}
+            </span>
+            {lead.is_overdue && (
+              <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium ml-2">
+                SLA VENCIDO
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={() => setEditing(!editing)}
+          className="text-sm text-blue-600 hover:underline"
+        >
+          {editing ? "Cancelar Edição" : "Editar"}
+        </button>
+      </div>
+
+      {/* Pipeline Status Buttons */}
+      <div className="bg-white border rounded-lg p-4 mb-6">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Pipeline</h3>
+        <div className="flex gap-2 flex-wrap">
+          {STATUS_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => changeStatus(value)}
+              disabled={lead.status === value}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                lead.status === value
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          {!lead.contacted_at && lead.status === "novo" && (
+            <button
+              onClick={handleContact}
+              className="text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 ml-2"
+            >
+              Registrar 1o Contato
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Edit Form */}
+      {editing && (
+        <div className="bg-white border rounded-lg p-4 mb-6 space-y-3">
+          <h3 className="text-sm font-semibold text-gray-700">Editar Dados do Lead</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Nome</label>
+              <input
+                value={editForm.full_name}
+                onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Telefone</label>
+              <input
+                value={editForm.phone}
+                onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">E-mail</label>
+              <input
+                value={editForm.email}
+                onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Valor orçamento (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={editForm.quote_value}
+                onChange={(e) => setEditForm({ ...editForm, quote_value: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Descrição / Queixa</label>
+              <textarea
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                rows={2}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Próximo follow-up</label>
+              <input
+                type="datetime-local"
+                value={editForm.next_followup_at}
+                onChange={(e) => setEditForm({ ...editForm, next_followup_at: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+          <button
+            onClick={saveEdit}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
+          >
+            Salvar
+          </button>
+        </div>
+      )}
+
+      {/* Lead Info Cards */}
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <InfoCard label="SLA Deadline" value={
+          lead.sla_deadline
+            ? new Date(lead.sla_deadline).toLocaleString("pt-BR")
+            : "—"
+        } />
+        <InfoCard label="Primeiro Contato" value={
+          lead.contacted_at
+            ? new Date(lead.contacted_at).toLocaleString("pt-BR")
+            : "Não contatado"
+        } />
+        <InfoCard label="UTM Source" value={lead.utm_source || "—"} />
+        <InfoCard label="UTM Campaign" value={lead.utm_campaign || "—"} />
+        <InfoCard label="Criado em" value={new Date(lead.created_at).toLocaleString("pt-BR")} />
+        <InfoCard label="Valor Orçamento" value={
+          lead.quote_value ? `R$ ${lead.quote_value.toFixed(2)}` : "—"
+        } />
+      </div>
+
+      {/* Interactions */}
+      <div className="bg-white border rounded-lg p-4 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700">Interações</h3>
+          <button
+            onClick={() => setShowInteraction(!showInteraction)}
+            className="text-sm text-blue-600 hover:underline"
+          >
+            {showInteraction ? "Cancelar" : "+ Nova interação"}
+          </button>
+        </div>
+
+        {showInteraction && (
+          <div className="border rounded-lg p-3 mb-4 space-y-2 bg-gray-50">
+            <div className="flex gap-2">
+              <select
+                value={interactionForm.type}
+                onChange={(e) => setInteractionForm({ ...interactionForm, type: e.target.value })}
+                className="border rounded px-2 py-1.5 text-sm"
+              >
+                {INTERACTION_TYPES.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </div>
+            <textarea
+              value={interactionForm.content}
+              onChange={(e) => setInteractionForm({ ...interactionForm, content: e.target.value })}
+              placeholder="Descreva o contato..."
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+              rows={2}
+            />
+            <input
+              value={interactionForm.next_action}
+              onChange={(e) => setInteractionForm({ ...interactionForm, next_action: e.target.value })}
+              placeholder="Próxima ação (opcional)"
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+            />
+            <button
+              onClick={addInteraction}
+              className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700"
+            >
+              Registrar
+            </button>
+          </div>
+        )}
+
+        {interactions.length === 0 ? (
+          <p className="text-sm text-gray-400">Nenhuma interação registrada.</p>
+        ) : (
+          <div className="space-y-3">
+            {interactions.map((int) => (
+              <div key={int.id} className="border-l-2 border-blue-200 pl-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-medium text-blue-600 uppercase">
+                    {INTERACTION_TYPES.find((t) => t.value === int.type)?.label || int.type}
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    {new Date(int.interacted_at).toLocaleString("pt-BR")}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-700">{int.content}</p>
+                {int.next_action && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Próxima ação: {int.next_action}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Lost Modal */}
+      {showLostModal && (
+        <Modal onClose={() => setShowLostModal(false)} title="Marcar como Perdido">
+          <p className="text-sm text-gray-500 mb-3">Informe o motivo da perda:</p>
+          <textarea
+            value={lostReason}
+            onChange={(e) => setLostReason(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm mb-3"
+            rows={2}
+            placeholder="Ex: Preço alto, escolheu outra clínica..."
+          />
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setShowLostModal(false)} className="text-sm text-gray-500 px-4 py-2">
+              Cancelar
+            </button>
+            <button
+              onClick={handleLost}
+              disabled={!lostReason.trim()}
+              className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+            >
+              Confirmar Perda
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Convert Modal */}
+      {showConvertModal && (
+        <Modal onClose={() => setShowConvertModal(false)} title="Converter em Paciente">
+          <p className="text-sm text-gray-500 mb-3">O lead será convertido em paciente.</p>
+          <div className="mb-3">
+            <label className="block text-xs text-gray-500 mb-1">Nome do paciente</label>
+            <input
+              value={convertName}
+              onChange={(e) => setConvertName(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setShowConvertModal(false)} className="text-sm text-gray-500 px-4 py-2">
+              Cancelar
+            </button>
+            <button
+              onClick={handleConvert}
+              className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700"
+            >
+              Converter
+            </button>
+          </div>
+        </Modal>
+      )}
+    </main>
+  );
+}
+
+function InfoCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-white border rounded-lg px-4 py-3">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-sm font-medium text-gray-900">{value}</p>
+    </div>
+  );
+}
+
+function Modal({ onClose, title, children }: { onClose: () => void; title: string; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
+        <h2 className="text-lg font-bold text-gray-900 mb-4">{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}

@@ -21,8 +21,9 @@ app = FastAPI(
     title="Open Clinic AI",
     description="Sistema open-source para clínicas — API Backend",
     version="0.1.0",
-    docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
-    redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
     lifespan=lifespan,
 )
 
@@ -40,12 +41,16 @@ from app.modules.scheduling.router import router as scheduling_router
 from app.modules.crm.router import router as patients_router
 
 from app.modules.leads.router import router as leads_router
+from app.modules.messaging.router import router as webhooks_router
+from app.modules.admin.setup_router import router as admin_setup_router
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(specialties_router, prefix="/api/v1/specialties", tags=["specialties"])
 app.include_router(scheduling_router, prefix="/api/v1/scheduling", tags=["scheduling"])
 app.include_router(patients_router, prefix="/api/v1/patients", tags=["patients"])
 app.include_router(leads_router, prefix="/api/v1/leads", tags=["leads"])
+app.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
+app.include_router(admin_setup_router, prefix="/api/v1/admin", tags=["admin"])
 
 
 @app.get("/health")
