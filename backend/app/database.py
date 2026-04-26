@@ -28,7 +28,7 @@ class Base(DeclarativeBase):
 async def init_db():
     """Importa todos os modelos para garantir registro no metadata."""
     from app.modules.auth.models import User  # noqa
-    from app.modules.admin.models import Specialty, SystemConfig  # noqa
+    from app.modules.admin.models import AuditLog, Specialty, SystemConfig  # noqa
     from app.modules.scheduling.models import Doctor, DoctorSchedule, ScheduleBlock, Appointment  # noqa
     from app.modules.crm.models import Patient  # noqa
     from app.modules.leads.models import Lead, LeadInteraction  # noqa

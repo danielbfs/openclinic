@@ -36,6 +36,14 @@ class LeadUpdate(BaseModel):
     next_followup_at: datetime | None = None
 
 
+class AssignedUserSummary(BaseModel):
+    id: uuid.UUID
+    username: str
+    full_name: str
+
+    model_config = {"from_attributes": True}
+
+
 class LeadResponse(BaseModel):
     id: uuid.UUID
     full_name: str | None
@@ -53,6 +61,7 @@ class LeadResponse(BaseModel):
     status: str
     lost_reason: str | None
     assigned_to: uuid.UUID | None
+    assigned_user: AssignedUserSummary | None = None
     sla_deadline: datetime
     contacted_at: datetime | None
     is_overdue: bool
@@ -94,9 +103,12 @@ class LeadContactRequest(BaseModel):
 
 
 class LeadConvertRequest(BaseModel):
-    """Converte lead em paciente."""
+    """Converte lead em paciente. Opcionalmente já cria o agendamento."""
     patient_name: str | None = None
     appointment_notes: str | None = None
+    # Quando informados, criam o agendamento na conversão
+    doctor_id: uuid.UUID | None = None
+    starts_at: datetime | None = None
 
 
 class LeadLostRequest(BaseModel):
@@ -106,7 +118,35 @@ class LeadLostRequest(BaseModel):
 
 class LeadAssignRequest(BaseModel):
     """Atribui lead a um usuário."""
-    assigned_to: uuid.UUID
+    assigned_to: uuid.UUID | None = None
+
+
+class LeadTransitionRequest(BaseModel):
+    """Transição genérica de status (não inclui convertido — use /convert)."""
+    to_status: str
+    note: str | None = None
+    lost_reason: str | None = None
+
+
+class BulkAssignRequest(BaseModel):
+    lead_ids: list[uuid.UUID]
+    assigned_to: uuid.UUID | None = None
+
+
+class PipelineConfigResponse(BaseModel):
+    statuses: list[str]
+    pipeline_order: list[str]
+    terminal_statuses: list[str]
+    allowed_transitions: dict[str, list[str]]
+    lost_reasons: list[dict]
+    status_labels: dict[str, str]
+
+
+class PipelineStageMetric(BaseModel):
+    status: str
+    total: int
+    value_total: float
+    value_avg: float
 
 
 # --- Webhook inbound ---

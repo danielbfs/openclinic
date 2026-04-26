@@ -32,6 +32,9 @@ async def authenticate_user(db: AsyncSession, username: str, password: str) -> U
     return user
 
 
+_UNSET = object()
+
+
 async def create_user(
     db: AsyncSession,
     username: str,
@@ -39,6 +42,7 @@ async def create_user(
     password: str,
     role: str,
     must_change_password: bool = True,
+    doctor_id: uuid.UUID | None = None,
 ) -> User:
     user = User(
         username=username,
@@ -46,6 +50,7 @@ async def create_user(
         password_hash=hash_password(password),
         role=role,
         must_change_password=must_change_password,
+        doctor_id=doctor_id,
     )
     db.add(user)
     await db.commit()
@@ -68,6 +73,7 @@ async def update_user(
     full_name: str | None = None,
     role: str | None = None,
     is_active: bool | None = None,
+    doctor_id=_UNSET,
 ) -> User:
     if username is not None:
         user.username = username
@@ -77,6 +83,8 @@ async def update_user(
         user.role = role
     if is_active is not None:
         user.is_active = is_active
+    if doctor_id is not _UNSET:
+        user.doctor_id = doctor_id
     await db.commit()
     await db.refresh(user)
     return user

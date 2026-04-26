@@ -1,12 +1,13 @@
 /** Tipos compartilhados do Open Clinic AI Frontend */
 
-export type UserRole = "admin" | "secretary";
+export type UserRole = "admin" | "secretary" | "doctor";
 
 export interface User {
   id: string;
   username: string;
   full_name: string;
   role: UserRole;
+  doctor_id: string | null;
   is_active: boolean;
   must_change_password: boolean;
   created_at: string;
@@ -22,6 +23,7 @@ export interface TokenResponse {
 export type LeadStatus =
   | "novo"
   | "em_contato"
+  | "qualificado"
   | "orcamento_enviado"
   | "negociando"
   | "convertido"
@@ -37,6 +39,12 @@ export type LeadChannel =
   | "indicacao"
   | "outro";
 
+export interface AssignedUserSummary {
+  id: string;
+  username: string;
+  full_name: string;
+}
+
 export interface Lead {
   id: string;
   full_name: string | null;
@@ -49,12 +57,34 @@ export interface Lead {
   description: string | null;
   quote_value: number | null;
   status: LeadStatus;
+  lost_reason: string | null;
   assigned_to: string | null;
+  assigned_user: AssignedUserSummary | null;
   sla_deadline: string;
   contacted_at: string | null;
   is_overdue: boolean;
   next_followup_at: string | null;
+  converted_patient_id: string | null;
+  converted_at: string | null;
+  appointment_id: string | null;
   created_at: string;
+  updated_at: string;
+}
+
+export interface PipelineConfig {
+  statuses: LeadStatus[];
+  pipeline_order: LeadStatus[];
+  terminal_statuses: LeadStatus[];
+  allowed_transitions: Record<LeadStatus, LeadStatus[]>;
+  lost_reasons: { value: string; label: string }[];
+  status_labels: Record<LeadStatus, string>;
+}
+
+export interface PipelineStageMetric {
+  status: LeadStatus;
+  total: number;
+  value_total: number;
+  value_avg: number;
 }
 
 export interface LeadInteraction {

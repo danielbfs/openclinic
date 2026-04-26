@@ -2,15 +2,31 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.audit import log_action
 from app.core.permissions import get_current_user, require_role
 from app.database import get_db
 from app.modules.auth.models import User
 from app.modules.crm.service import get_patient_by_phone, create_patient
+from app.modules.scheduling.service import (
+    SlotNotAvailableError,
+    create_appointment,
+    get_doctor_by_id,
+)
+from app.modules.leads.pipeline import (
+    ALLOWED_TRANSITIONS,
+    InvalidTransitionError,
+    LEAD_STATUSES,
+    LOST_REASONS,
+    PIPELINE_ORDER,
+    STATUS_LABELS,
+    TERMINAL_STATUSES,
+)
 from app.modules.leads.schemas import (
+    BulkAssignRequest,
     FunnelItem,
     InboundLeadWebhook,
     InteractionCreate,
@@ -22,11 +38,15 @@ from app.modules.leads.schemas import (
     LeadLostRequest,
     LeadResponse,
     LeadsBySourceItem,
+    LeadTransitionRequest,
     LeadUpdate,
+    PipelineConfigResponse,
+    PipelineStageMetric,
     SLAReport,
     TimelineItem,
 )
 from app.modules.leads.service import (
+    bulk_assign,
     convert_lead,
     create_interaction,
     create_lead,
@@ -35,10 +55,12 @@ from app.modules.leads.service import (
     get_lead_by_id,
     get_lead_interactions,
     get_leads_by_source,
+    get_pipeline_report,
     get_sla_report,
     get_timeline,
     mark_contacted,
     mark_lost,
+    transition_status,
     update_lead,
 )
 
@@ -147,6 +169,7 @@ async def contact_lead(
 async def convert_lead_to_patient(
     lead_id: uuid.UUID,
     body: LeadConvertRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -165,11 +188,59 @@ async def convert_lead_to_patient(
             channel=lead.channel if lead.channel in ("telegram", "whatsapp") else "whatsapp",
         )
 
-    lead = await convert_lead(db, lead, converted_patient_id=patient.id)
+    # Se médico+horário foram informados, já cria o agendamento
+    appointment_id = None
+    interaction_note = "Lead convertido em paciente."
+    if body.doctor_id and body.starts_at:
+        doctor = await get_doctor_by_id(db, body.doctor_id)
+        if not doctor:
+            raise HTTPException(status_code=404, detail="Médico não encontrado.")
+
+        ends_at = body.starts_at + timedelta(minutes=doctor.slot_duration_minutes)
+        try:
+            appt = await create_appointment(
+                db,
+                patient_id=patient.id,
+                doctor_id=doctor.id,
+                starts_at=body.starts_at,
+                ends_at=ends_at,
+                specialty_id=doctor.specialty_id or lead.specialty_id,
+                source="secretary",
+                notes=body.appointment_notes,
+                created_by_user=current_user.id,
+            )
+        except SlotNotAvailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Não foi possível criar o agendamento: {exc}",
+            )
+        appointment_id = appt.id
+        interaction_note = (
+            f"Lead convertido em paciente e agendado com {doctor.full_name} "
+            f"em {body.starts_at.isoformat()}."
+        )
+
+    lead = await convert_lead(
+        db, lead, converted_patient_id=patient.id, appointment_id=appointment_id
+    )
 
     await create_interaction(
         db, lead_id=lead.id, user_id=current_user.id,
-        type="nota", content=f"Lead convertido em paciente.",
+        type="nota", content=interaction_note,
+    )
+    await log_action(
+        db,
+        action="lead.convert",
+        user_id=current_user.id,
+        entity_type="lead",
+        entity_id=lead.id,
+        payload={
+            "patient_id": str(patient.id),
+            "appointment_id": str(appointment_id) if appointment_id else None,
+        },
+        request=request,
     )
     return lead
 
@@ -178,6 +249,7 @@ async def convert_lead_to_patient(
 async def mark_lead_lost(
     lead_id: uuid.UUID,
     body: LeadLostRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -191,6 +263,15 @@ async def mark_lead_lost(
         db, lead_id=lead.id, user_id=current_user.id,
         type="nota", content=f"Lead perdido: {body.lost_reason}",
     )
+    await log_action(
+        db,
+        action="lead.lost",
+        user_id=current_user.id,
+        entity_type="lead",
+        entity_id=lead.id,
+        payload={"lost_reason": body.lost_reason},
+        request=request,
+    )
     return lead
 
 
@@ -198,13 +279,109 @@ async def mark_lead_lost(
 async def assign_lead(
     lead_id: uuid.UUID,
     body: LeadAssignRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     lead = await get_lead_by_id(db, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead não encontrado.")
-    return await update_lead(db, lead, assigned_to=body.assigned_to)
+    updated = await update_lead(db, lead, assigned_to=body.assigned_to)
+    await create_interaction(
+        db, lead_id=lead.id, user_id=current_user.id,
+        type="nota",
+        content=(
+            f"Atribuído a {body.assigned_to}" if body.assigned_to else "Desatribuído"
+        ),
+    )
+    await log_action(
+        db,
+        action="lead.assign",
+        user_id=current_user.id,
+        entity_type="lead",
+        entity_id=lead.id,
+        payload={"assigned_to": str(body.assigned_to) if body.assigned_to else None},
+        request=request,
+    )
+    return updated
+
+
+@router.post("/{lead_id}/transition", response_model=LeadResponse)
+async def transition_lead(
+    lead_id: uuid.UUID,
+    body: LeadTransitionRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Transição genérica de status. Para 'convertido' use /convert."""
+    lead = await get_lead_by_id(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead não encontrado.")
+    try:
+        lead = await transition_status(
+            db,
+            lead,
+            to_status=body.to_status,
+            user_id=current_user.id,
+            note=body.note,
+            lost_reason=body.lost_reason,
+        )
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    await log_action(
+        db,
+        action="lead.transition",
+        user_id=current_user.id,
+        entity_type="lead",
+        entity_id=lead.id,
+        payload={"to_status": body.to_status, "lost_reason": body.lost_reason},
+        request=request,
+    )
+    return lead
+
+
+@router.post("/bulk/assign")
+async def bulk_assign_leads(
+    body: BulkAssignRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    count = await bulk_assign(
+        db,
+        lead_ids=body.lead_ids,
+        assigned_to=body.assigned_to,
+        user_id=current_user.id,
+    )
+    await log_action(
+        db,
+        action="lead.bulk_assign",
+        user_id=current_user.id,
+        entity_type="lead",
+        payload={
+            "count": count,
+            "assigned_to": str(body.assigned_to) if body.assigned_to else None,
+            "lead_ids": [str(i) for i in body.lead_ids],
+        },
+        request=request,
+    )
+    return {"updated": count}
+
+
+@router.get("/pipeline/config", response_model=PipelineConfigResponse)
+async def get_pipeline_config(
+    current_user: User = Depends(get_current_user),
+):
+    """Retorna a configuração do pipeline para o frontend renderizar Kanban."""
+    return PipelineConfigResponse(
+        statuses=LEAD_STATUSES,
+        pipeline_order=PIPELINE_ORDER,
+        terminal_statuses=sorted(TERMINAL_STATUSES),
+        allowed_transitions={k: sorted(v) for k, v in ALLOWED_TRANSITIONS.items()},
+        lost_reasons=LOST_REASONS,
+        status_labels=STATUS_LABELS,
+    )
 
 
 # --- Interactions ---
@@ -251,7 +428,8 @@ async def inbound_lead_webhook(
     db: AsyncSession = Depends(get_db),
 ):
     """Recebe leads de fontes externas (Google Ads, Meta Ads, formulários)."""
-    if x_api_key != settings.LEADS_WEBHOOK_API_KEY:
+    # Fail closed: rejeita se nenhuma chave estiver configurada no servidor
+    if not settings.LEADS_WEBHOOK_API_KEY or x_api_key != settings.LEADS_WEBHOOK_API_KEY:
         raise HTTPException(status_code=401, detail="API key inválida.")
 
     # Determina canal pela UTM
@@ -325,3 +503,78 @@ async def report_timeline(
     db: AsyncSession = Depends(get_db),
 ):
     return await get_timeline(db, date_from=_parse_period(period))
+
+
+@router.get("/reports/pipeline", response_model=list[PipelineStageMetric])
+async def report_pipeline(
+    period: str = Query("30d"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_pipeline_report(db, date_from=_parse_period(period))
+
+
+@router.get("/export.csv")
+async def export_leads_csv(
+    status: str | None = None,
+    channel: str | None = None,
+    assigned_to: uuid.UUID | None = None,
+    is_overdue: bool | None = None,
+    specialty_id: uuid.UUID | None = None,
+    utm_campaign: str | None = None,
+    search: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Exporta a lista de leads em CSV (mesmos filtros do GET /leads)."""
+    import csv
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    leads = await get_all_leads(
+        db,
+        status=status,
+        channel=channel,
+        assigned_to=assigned_to,
+        is_overdue=is_overdue,
+        specialty_id=specialty_id,
+        utm_campaign=utm_campaign,
+        search=search,
+    )
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([
+        "id", "nome", "telefone", "email", "canal",
+        "status", "lost_reason", "valor_orcamento",
+        "utm_source", "utm_campaign", "responsavel_id",
+        "sla_deadline", "contacted_at", "is_overdue",
+        "convertido_em", "criado_em",
+    ])
+    for l in leads:
+        writer.writerow([
+            str(l.id),
+            l.full_name or "",
+            l.phone,
+            l.email or "",
+            l.channel,
+            l.status,
+            l.lost_reason or "",
+            l.quote_value or "",
+            l.utm_source or "",
+            l.utm_campaign or "",
+            str(l.assigned_to) if l.assigned_to else "",
+            l.sla_deadline.isoformat() if l.sla_deadline else "",
+            l.contacted_at.isoformat() if l.contacted_at else "",
+            "sim" if l.is_overdue else "não",
+            l.converted_at.isoformat() if l.converted_at else "",
+            l.created_at.isoformat() if l.created_at else "",
+        ])
+
+    buffer.seek(0)
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="leads.csv"'},
+    )

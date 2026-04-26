@@ -8,6 +8,7 @@ import type { Lead, LeadInteraction } from "@/types";
 const STATUS_OPTIONS = [
   { value: "novo", label: "Novo" },
   { value: "em_contato", label: "Em Contato" },
+  { value: "qualificado", label: "Qualificado" },
   { value: "orcamento_enviado", label: "Orçamento Enviado" },
   { value: "negociando", label: "Negociando" },
   { value: "convertido", label: "Convertido" },
@@ -17,11 +18,23 @@ const STATUS_OPTIONS = [
 const STATUS_COLORS: Record<string, string> = {
   novo: "bg-blue-500",
   em_contato: "bg-yellow-500",
+  qualificado: "bg-cyan-500",
   orcamento_enviado: "bg-purple-500",
   negociando: "bg-orange-500",
   convertido: "bg-green-500",
   perdido: "bg-gray-400",
 };
+
+const LOST_REASON_OPTIONS = [
+  { value: "sem_resposta", label: "Sem resposta" },
+  { value: "preco", label: "Preço" },
+  { value: "ja_atendido", label: "Já atendido em outro lugar" },
+  { value: "fora_de_perfil", label: "Fora do perfil" },
+  { value: "sem_disponibilidade", label: "Sem disponibilidade" },
+  { value: "mudou_de_ideia", label: "Mudou de ideia" },
+  { value: "duplicado", label: "Lead duplicado" },
+  { value: "outro", label: "Outro" },
+];
 
 const INTERACTION_TYPES = [
   { value: "nota", label: "Nota" },
@@ -136,10 +149,11 @@ export default function LeadDetailPage() {
       return;
     }
     try {
-      await api.patch(`/leads/${lead.id}`, { status: newStatus });
+      await api.post(`/leads/${lead.id}/transition`, { to_status: newStatus });
       fetchLead();
-    } catch {
-      alert("Erro ao alterar status.");
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      alert(e.response?.data?.detail || "Erro ao alterar status.");
     }
   }
 
@@ -427,21 +441,28 @@ export default function LeadDetailPage() {
       {/* Lost Modal */}
       {showLostModal && (
         <Modal onClose={() => setShowLostModal(false)} title="Marcar como Perdido">
-          <p className="text-sm text-gray-500 mb-3">Informe o motivo da perda:</p>
-          <textarea
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Motivo da perda *
+          </label>
+          <select
             value={lostReason}
             onChange={(e) => setLostReason(e.target.value)}
             className="w-full border rounded-lg px-3 py-2 text-sm mb-3"
-            rows={2}
-            placeholder="Ex: Preço alto, escolheu outra clínica..."
-          />
+          >
+            <option value="">Selecione um motivo...</option>
+            {LOST_REASON_OPTIONS.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setShowLostModal(false)} className="text-sm text-gray-500 px-4 py-2">
               Cancelar
             </button>
             <button
               onClick={handleLost}
-              disabled={!lostReason.trim()}
+              disabled={!lostReason}
               className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
             >
               Confirmar Perda

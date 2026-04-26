@@ -3,10 +3,13 @@ import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.modules.scheduling.service import (
+    SlotNotAvailableError,
     get_appointments,
     get_available_slots,
     get_available_slots_by_specialty,
@@ -18,6 +21,14 @@ from app.modules.scheduling.service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_datetime_aware(value: str) -> datetime:
+    """Parse ISO 8601 string. If naive, assume clinic timezone."""
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo(settings.CLINIC_TIMEZONE))
+    return dt
 
 # OpenAI function definitions
 TOOL_DEFINITIONS = [
@@ -171,7 +182,7 @@ async def execute_tool(
         elif tool_name == "get_patient_appointments":
             return await _get_patient_appointments(db, patient_id)
         elif tool_name == "escalate_to_human":
-            return _escalate_to_human(arguments)
+            return await _escalate_to_human(db, patient_id, arguments)
         else:
             return json.dumps({"error": f"Tool desconhecida: {tool_name}"})
     except Exception as e:
@@ -181,9 +192,9 @@ async def execute_tool(
 
 async def _check_availability(db: AsyncSession, args: dict) -> str:
     now = datetime.now(timezone.utc)
-    date_from = datetime.fromisoformat(args["date_from"]) if args.get("date_from") else now
+    date_from = _parse_datetime_aware(args["date_from"]) if args.get("date_from") else now
     date_to = (
-        datetime.fromisoformat(args["date_to"])
+        _parse_datetime_aware(args["date_to"])
         if args.get("date_to")
         else date_from + timedelta(days=7)
     )
@@ -207,7 +218,7 @@ async def _book_appointment(
     db: AsyncSession, patient_id: uuid.UUID, args: dict
 ) -> str:
     doctor_id = uuid.UUID(args["doctor_id"])
-    starts_at = datetime.fromisoformat(args["starts_at"])
+    starts_at = _parse_datetime_aware(args["starts_at"])
 
     doctor = await get_doctor_by_id(db, doctor_id)
     if not doctor:
@@ -233,6 +244,8 @@ async def _book_appointment(
             "starts_at": starts_at.isoformat(),
             "ends_at": ends_at.isoformat(),
         })
+    except SlotNotAvailableError as e:
+        return json.dumps({"error": str(e), "slot_unavailable": True})
     except Exception as e:
         return json.dumps({"error": f"Não foi possível agendar: {e}"})
 
@@ -251,7 +264,7 @@ async def _cancel_appointment(db: AsyncSession, args: dict) -> str:
 
 async def _reschedule_appointment(db: AsyncSession, args: dict) -> str:
     appt_id = uuid.UUID(args["appointment_id"])
-    new_starts_at = datetime.fromisoformat(args["new_starts_at"])
+    new_starts_at = _parse_datetime_aware(args["new_starts_at"])
 
     appt = await get_appointment_by_id(db, appt_id)
     if not appt:
@@ -286,8 +299,53 @@ async def _get_patient_appointments(db: AsyncSession, patient_id: uuid.UUID) -> 
     return json.dumps({"appointments": result})
 
 
-def _escalate_to_human(args: dict) -> str:
+async def _escalate_to_human(
+    db: AsyncSession, patient_id: uuid.UUID, args: dict
+) -> str:
+    """Marca o paciente como escalonado, encerra sessão IA e notifica humano."""
+    from sqlalchemy import select
+
+    from app.modules.admin.models import SystemConfig
+    from app.modules.ai.session import clear_session
+    from app.modules.crm.models import Patient
+    from app.modules.messaging.gateway import send_message
+
     reason = args.get("reason", "Paciente solicitou atendimento humano")
+
+    # 1. Marca o paciente — usamos crm_status para indicar revisão humana
+    patient = await db.get(Patient, patient_id)
+    if patient:
+        existing_notes = patient.notes or ""
+        prefix = "[ESCALONADO PARA HUMANO] "
+        if not existing_notes.startswith(prefix):
+            patient.notes = f"{prefix}{reason}\n{existing_notes}".strip()
+        await db.commit()
+
+    # 2. Limpa sessão IA para que próximas mensagens não continuem o fluxo automatizado
+    try:
+        await clear_session(patient_id)
+    except Exception:
+        logger.exception("Failed to clear AI session for patient %s", patient_id)
+
+    # 3. Notifica via Telegram (se configurado)
+    try:
+        result = await db.execute(
+            select(SystemConfig).where(SystemConfig.key == "notifications")
+        )
+        row = result.scalar_one_or_none()
+        chat_id = (row.value or {}).get("escalation_telegram_chat_id") if row else ""
+        if chat_id and patient:
+            name = patient.full_name or patient.phone
+            text = (
+                f"🆘 *Atendimento humano solicitado*\n\n"
+                f"Paciente: {name}\n"
+                f"Canal: {patient.channel}\n"
+                f"Motivo: {reason}"
+            )
+            await send_message("telegram", chat_id, text)
+    except Exception:
+        logger.exception("Failed to send escalation notification")
+
     return json.dumps({
         "escalated": True,
         "message": (

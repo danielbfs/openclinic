@@ -2,9 +2,11 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.audit import log_action
+from app.core.exceptions import ForbiddenError
 from app.core.permissions import get_current_user, require_role
 from app.database import get_db
 from app.modules.auth.models import User
@@ -22,6 +24,7 @@ from app.modules.scheduling.schemas import (
     TimeSlot,
 )
 from app.modules.scheduling.service import (
+    SlotNotAvailableError,
     cancel_appointment,
     create_appointment,
     create_doctor,
@@ -121,9 +124,12 @@ async def get_doctor_schedule(
 async def replace_doctor_schedule(
     doctor_id: uuid.UUID,
     body: DoctorScheduleSet,
-    current_user: User = Depends(require_role("admin")),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if current_user.role != "admin":
+        if current_user.role != "doctor" or current_user.doctor_id != doctor_id:
+            raise ForbiddenError()
     doctor = await get_doctor_by_id(db, doctor_id)
     if not doctor:
         raise HTTPException(status_code=404, detail="Médico não encontrado.")
@@ -206,20 +212,39 @@ async def list_appointments(
 @router.post("/appointments", response_model=AppointmentResponse, status_code=201)
 async def create_new_appointment(
     body: AppointmentCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await create_appointment(
+    try:
+        appt = await create_appointment(
+            db,
+            patient_id=body.patient_id,
+            doctor_id=body.doctor_id,
+            starts_at=body.starts_at,
+            ends_at=body.ends_at,
+            specialty_id=body.specialty_id,
+            source=body.source,
+            notes=body.notes,
+            created_by_user=current_user.id,
+        )
+    except SlotNotAvailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    await log_action(
         db,
-        patient_id=body.patient_id,
-        doctor_id=body.doctor_id,
-        starts_at=body.starts_at,
-        ends_at=body.ends_at,
-        specialty_id=body.specialty_id,
-        source=body.source,
-        notes=body.notes,
-        created_by_user=current_user.id,
+        action="appointment.create",
+        user_id=current_user.id,
+        entity_type="appointment",
+        entity_id=appt.id,
+        payload={
+            "patient_id": str(appt.patient_id),
+            "doctor_id": str(appt.doctor_id),
+            "starts_at": appt.starts_at.isoformat(),
+            "source": appt.source,
+        },
+        request=request,
     )
+    return appt
 
 
 @router.get("/appointments/{appointment_id}", response_model=AppointmentResponse)
@@ -250,6 +275,7 @@ async def update_existing_appointment(
 @router.delete("/appointments/{appointment_id}", status_code=204)
 async def cancel_existing_appointment(
     appointment_id: uuid.UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -257,3 +283,11 @@ async def cancel_existing_appointment(
     if not appt:
         raise HTTPException(status_code=404, detail="Agendamento não encontrado.")
     await cancel_appointment(db, appt)
+    await log_action(
+        db,
+        action="appointment.cancel",
+        user_id=current_user.id,
+        entity_type="appointment",
+        entity_id=appt.id,
+        request=request,
+    )

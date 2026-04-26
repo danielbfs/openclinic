@@ -15,6 +15,7 @@ interface ClinicSettings {
   timezone: string;
   phone: string;
   address: string;
+  logo_url: string;
 }
 
 interface SLASettings {
@@ -43,6 +44,7 @@ export default function SetupPage() {
     timezone: "America/Sao_Paulo",
     phone: "",
     address: "",
+    logo_url: "",
   });
   const [sla, setSla] = useState<SLASettings>({ hours: 2 });
 
@@ -174,6 +176,28 @@ export default function SetupPage() {
                 onChange={(e) => setClinic({ ...clinic, address: e.target.value })}
                 className="w-full border rounded-lg px-3 py-2 text-sm"
               />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Logo da Clínica (URL da imagem)
+              </label>
+              <input
+                value={clinic.logo_url}
+                onChange={(e) => setClinic({ ...clinic, logo_url: e.target.value })}
+                placeholder="https://exemplo.com/logo.png"
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              />
+              {clinic.logo_url && (
+                <img
+                  src={clinic.logo_url}
+                  alt="Preview"
+                  className="mt-2 h-10 w-auto object-contain rounded"
+                  onError={(e) => (e.currentTarget.style.display = "none")}
+                />
+              )}
+              <p className="mt-1 text-xs text-gray-400">
+                Aparece no cabeçalho de todas as telas. Recomendado: fundo transparente, altura 32–48 px.
+              </p>
             </div>
           </div>
           <button

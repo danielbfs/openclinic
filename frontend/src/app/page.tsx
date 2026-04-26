@@ -20,6 +20,8 @@ export default function Home() {
         router.replace("/change-password");
       } else if (user.role === "admin") {
         router.replace("/admin");
+      } else if (user.role === "doctor") {
+        router.replace("/doctor");
       } else {
         router.replace("/secretary");
       }

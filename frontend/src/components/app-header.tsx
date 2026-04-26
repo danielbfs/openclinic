@@ -1,25 +1,58 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
+import { api } from "@/lib/api";
+
+interface Branding {
+  name: string;
+  logo_url: string;
+}
 
 export function AppHeader() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const [branding, setBranding] = useState<Branding>({ name: "Open Clinic AI", logo_url: "" });
+
+  useEffect(() => {
+    api
+      .get("/admin/branding")
+      .then(({ data }) => setBranding(data))
+      .catch(() => {});
+  }, []);
 
   if (!user) return null;
 
-  const roleLabel = user.role === "admin" ? "Administrador" : "Secretária";
+  const roleLabel =
+    user.role === "admin" ? "Administrador" :
+    user.role === "doctor" ? "Médico" :
+    "Secretária";
+
+  const homeHref =
+    user.role === "admin" ? "/admin" :
+    user.role === "doctor" ? "/doctor" :
+    "/secretary";
+
+  const displayName = branding.name || "Open Clinic AI";
 
   return (
     <header className="bg-white border-b px-6 py-3 flex items-center justify-between">
       <div className="flex items-center gap-4">
-        <h1
-          className="font-bold text-gray-900 cursor-pointer"
-          onClick={() => router.push(user.role === "admin" ? "/admin" : "/secretary")}
+        <button
+          onClick={() => router.push(homeHref)}
+          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
         >
-          Open Clinic AI
-        </h1>
+          {branding.logo_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={branding.logo_url}
+              alt={displayName}
+              className="h-8 w-auto object-contain"
+            />
+          )}
+          <span className="font-bold text-gray-900">{displayName}</span>
+        </button>
         <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
           {roleLabel}
         </span>

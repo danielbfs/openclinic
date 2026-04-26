@@ -1,16 +1,21 @@
 """Doctor and scheduling business logic."""
+import logging
 import uuid
 from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.modules.scheduling.models import (
     Appointment,
     Doctor,
     DoctorSchedule,
     ScheduleBlock,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # --- Doctors ---
@@ -200,7 +205,8 @@ async def get_available_slots(
     )
     booked = list(result.scalars().all())
 
-    # 4. Generate slots day by day
+    # 4. Generate slots day by day — schedules are in clinic local time
+    clinic_tz = ZoneInfo(settings.CLINIC_TIMEZONE)
     available = []
     current_date = date_from.date() if hasattr(date_from, "date") else date_from
     end_date = date_to.date() if hasattr(date_to, "date") else date_to
@@ -213,12 +219,15 @@ async def get_available_slots(
             if sched.day_of_week != day_of_week or not sched.is_active:
                 continue
 
-            slot_start_dt = datetime.combine(
-                current_date, sched.start_time, tzinfo=timezone.utc
+            # Combine local date + local time, then convert to UTC for comparisons
+            slot_start_local = datetime.combine(
+                current_date, sched.start_time, tzinfo=clinic_tz
             )
-            slot_end_limit = datetime.combine(
-                current_date, sched.end_time, tzinfo=timezone.utc
+            slot_end_local = datetime.combine(
+                current_date, sched.end_time, tzinfo=clinic_tz
             )
+            slot_start_dt = slot_start_local.astimezone(timezone.utc)
+            slot_end_limit = slot_end_local.astimezone(timezone.utc)
 
             while slot_start_dt + slot_duration <= slot_end_limit:
                 slot_end_dt = slot_start_dt + slot_duration
@@ -313,6 +322,10 @@ async def get_appointment_by_id(db: AsyncSession, appointment_id: uuid.UUID) -> 
     return result.scalar_one_or_none()
 
 
+class SlotNotAvailableError(Exception):
+    """Slot ocupado por outro agendamento (corrida ou booking duplo)."""
+
+
 async def create_appointment(
     db: AsyncSession,
     patient_id: uuid.UUID,
@@ -324,6 +337,26 @@ async def create_appointment(
     notes: str | None = None,
     created_by_user: uuid.UUID | None = None,
 ) -> Appointment:
+    # Optimistic lock: verifica conflito com SELECT FOR UPDATE para serializar
+    # tentativas concorrentes. A constraint EXCLUDE no DB é o backstop final.
+    conflict_q = (
+        select(Appointment.id)
+        .where(
+            and_(
+                Appointment.doctor_id == doctor_id,
+                Appointment.starts_at < ends_at,
+                Appointment.ends_at > starts_at,
+                Appointment.status.notin_(["cancelled"]),
+            )
+        )
+        .with_for_update()
+    )
+    existing = await db.execute(conflict_q)
+    if existing.scalar() is not None:
+        raise SlotNotAvailableError(
+            "O horário selecionado não está mais disponível."
+        )
+
     appointment = Appointment(
         patient_id=patient_id,
         doctor_id=doctor_id,
@@ -335,8 +368,27 @@ async def create_appointment(
         created_by_user=created_by_user,
     )
     db.add(appointment)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        # IntegrityError disparado pela EXCLUDE constraint — converte em erro amigável
+        if "no_doctor_overlap" in str(exc) or "exclusion" in str(exc).lower():
+            raise SlotNotAvailableError(
+                "O horário selecionado acabou de ser ocupado por outro agendamento."
+            ) from exc
+        raise
     await db.refresh(appointment)
+
+    # Schedule follow-up jobs based on active rules — best-effort
+    try:
+        from app.modules.followup.service import schedule_followups_for_appointment
+        await schedule_followups_for_appointment(db, appointment)
+    except Exception:
+        logger.exception(
+            "Failed to schedule follow-ups for appointment %s", appointment.id
+        )
+
     return appointment
 
 

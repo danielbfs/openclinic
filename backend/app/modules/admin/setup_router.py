@@ -1,16 +1,18 @@
 """Admin setup endpoints — clinic settings, Telegram webhook, integrations status."""
 import logging
+import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.audit import log_action
 from app.core.permissions import require_role
 from app.database import get_db
-from app.modules.admin.models import SystemConfig
+from app.modules.admin.models import AuditLog, SystemConfig
 from app.modules.auth.models import User
 from app.modules.messaging.adapters.telegram import set_telegram_webhook
 
@@ -39,6 +41,7 @@ class ClinicSettings(BaseModel):
     timezone: str = "America/Sao_Paulo"
     phone: str = ""
     address: str = ""
+    logo_url: str = ""
 
 
 class SLASettings(BaseModel):
@@ -59,11 +62,30 @@ class ChatbotSettings(BaseModel):
     temperature: float = 0.3
 
 
+class NotificationsSettings(BaseModel):
+    sla_telegram_chat_id: str = ""
+    escalation_telegram_chat_id: str = ""
+
+
 class AllSettings(BaseModel):
     clinic: ClinicSettings
     sla: SLASettings
     ai: AISettings
     chatbot: ChatbotSettings
+    notifications: NotificationsSettings
+
+
+class AuditLogResponse(BaseModel):
+    id: int
+    user_id: uuid.UUID | None
+    action: str
+    entity_type: str | None
+    entity_id: uuid.UUID | None
+    payload: dict | None
+    ip_address: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 # --- Helpers ---
@@ -88,6 +110,15 @@ async def _set_config(db: AsyncSession, key: str, value: dict, user_id=None) -> 
 
 
 # --- Endpoints ---
+
+
+@router.get("/branding")
+async def get_branding(db: AsyncSession = Depends(get_db)):
+    """Endpoint público — retorna nome e logo da clínica para exibição no header."""
+    clinic_raw = await _get_config(db, "clinic_info")
+    name = clinic_raw.get("name", "Open Clinic AI") if clinic_raw else "Open Clinic AI"
+    logo_url = clinic_raw.get("logo_url", "") if clinic_raw else ""
+    return {"name": name, "logo_url": logo_url}
 
 
 @router.get("/setup/status", response_model=SetupStatus)
@@ -128,54 +159,140 @@ async def get_all_settings(
     sla_raw = await _get_config(db, "sla")
     ai_raw = await _get_config(db, "ai_provider")
     chatbot_raw = await _get_config(db, "chatbot")
+    notif_raw = await _get_config(db, "notifications")
 
     return AllSettings(
         clinic=ClinicSettings(**clinic_raw) if clinic_raw else ClinicSettings(),
         sla=SLASettings(**sla_raw) if sla_raw else SLASettings(),
         ai=AISettings(**ai_raw) if ai_raw else AISettings(),
         chatbot=ChatbotSettings(**chatbot_raw) if chatbot_raw else ChatbotSettings(),
+        notifications=(
+            NotificationsSettings(**notif_raw) if notif_raw else NotificationsSettings()
+        ),
     )
 
 
 @router.patch("/settings/clinic", response_model=ClinicSettings)
 async def update_clinic_settings(
     payload: ClinicSettings,
+    request: Request,
     current_user: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ):
     data = payload.model_dump()
     await _set_config(db, "clinic_info", data, current_user.id)
+    await log_action(
+        db,
+        action="settings.clinic.update",
+        user_id=current_user.id,
+        entity_type="system_config",
+        payload=data,
+        request=request,
+    )
     return payload
 
 
 @router.patch("/settings/sla", response_model=SLASettings)
 async def update_sla_settings(
     payload: SLASettings,
+    request: Request,
     current_user: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ):
     data = payload.model_dump()
     await _set_config(db, "sla", data, current_user.id)
+    await log_action(
+        db,
+        action="settings.sla.update",
+        user_id=current_user.id,
+        entity_type="system_config",
+        payload=data,
+        request=request,
+    )
     return payload
 
 
 @router.patch("/settings/ai", response_model=AISettings)
 async def update_ai_settings(
     payload: AISettings,
+    request: Request,
     current_user: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ):
     data = payload.model_dump()
     await _set_config(db, "ai_provider", data, current_user.id)
+    await log_action(
+        db,
+        action="settings.ai.update",
+        user_id=current_user.id,
+        entity_type="system_config",
+        payload=data,
+        request=request,
+    )
     return payload
 
 
 @router.patch("/settings/chatbot", response_model=ChatbotSettings)
 async def update_chatbot_settings(
     payload: ChatbotSettings,
+    request: Request,
     current_user: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ):
     data = payload.model_dump()
     await _set_config(db, "chatbot", data, current_user.id)
+    await log_action(
+        db,
+        action="settings.chatbot.update",
+        user_id=current_user.id,
+        entity_type="system_config",
+        payload=data,
+        request=request,
+    )
     return payload
+
+
+@router.patch("/settings/notifications", response_model=NotificationsSettings)
+async def update_notifications_settings(
+    payload: NotificationsSettings,
+    request: Request,
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    data = payload.model_dump()
+    await _set_config(db, "notifications", data, current_user.id)
+    await log_action(
+        db,
+        action="settings.notifications.update",
+        user_id=current_user.id,
+        entity_type="system_config",
+        payload=data,
+        request=request,
+    )
+    return payload
+
+
+@router.get("/audit-logs", response_model=list[AuditLogResponse])
+async def list_audit_logs(
+    user_id: uuid.UUID | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+    if user_id:
+        query = query.where(AuditLog.user_id == user_id)
+    if action:
+        query = query.where(AuditLog.action == action)
+    if entity_type:
+        query = query.where(AuditLog.entity_type == entity_type)
+    if date_from:
+        query = query.where(AuditLog.created_at >= date_from)
+    if date_to:
+        query = query.where(AuditLog.created_at <= date_to)
+    result = await db.execute(query)
+    return list(result.scalars().all())

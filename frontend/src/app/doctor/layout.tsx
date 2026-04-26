@@ -6,23 +6,22 @@ import { AuthGuard } from "@/components/auth-guard";
 import { AppHeader } from "@/components/app-header";
 
 const NAV_ITEMS = [
-  { href: "/secretary", label: "Leads" },
-  { href: "/secretary/calendar", label: "Calendário" },
-  { href: "/secretary/appointments", label: "Agendamentos" },
-  { href: "/secretary/patients", label: "Pacientes" },
+  { href: "/doctor", label: "Minha Agenda" },
+  { href: "/doctor/patients", label: "Meus Pacientes" },
+  { href: "/doctor/schedule", label: "Meus Horários" },
 ];
 
-export default function SecretaryLayout({ children }: { children: React.ReactNode }) {
+export default function DoctorLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <AuthGuard allowedRoles={["admin", "secretary"]}>
+    <AuthGuard allowedRoles={["doctor", "admin"]}>
       <div className="min-h-screen bg-gray-50">
         <AppHeader />
         <div className="flex">
           <nav className="w-52 bg-white border-r min-h-[calc(100vh-64px)] p-4 space-y-1">
             {NAV_ITEMS.map(({ href, label }) => {
-              const active = href === "/secretary" ? pathname === "/secretary" : pathname.startsWith(href);
+              const active = href === "/doctor" ? pathname === "/doctor" : pathname.startsWith(href);
               return (
                 <Link
                   key={href}

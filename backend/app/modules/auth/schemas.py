@@ -16,6 +16,10 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class LogoutRequest(BaseModel):
+    refresh_token: str
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
@@ -25,7 +29,8 @@ class CreateUserRequest(BaseModel):
     username: str
     full_name: str
     password: str
-    role: str  # 'admin' or 'secretary'
+    role: str  # 'admin', 'secretary', 'doctor'
+    doctor_id: uuid.UUID | None = None
 
 
 class UpdateUserRequest(BaseModel):
@@ -33,6 +38,7 @@ class UpdateUserRequest(BaseModel):
     full_name: str | None = None
     role: str | None = None
     is_active: bool | None = None
+    doctor_id: uuid.UUID | None = None
 
 
 # --- Response schemas ---
@@ -48,6 +54,7 @@ class UserResponse(BaseModel):
     username: str
     full_name: str
     role: str
+    doctor_id: uuid.UUID | None = None
     is_active: bool
     must_change_password: bool
     created_at: datetime

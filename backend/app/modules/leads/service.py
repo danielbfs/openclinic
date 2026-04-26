@@ -7,6 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.modules.leads.models import Lead, LeadInteraction
+from app.modules.leads.pipeline import (
+    InvalidTransitionError,
+    REQUIRES_LOST_REASON,
+    STATUS_LABELS,
+    validate_transition,
+)
 
 
 # --- CRUD ---
@@ -135,9 +141,104 @@ async def convert_lead(
     lead.converted_patient_id = converted_patient_id
     lead.appointment_id = appointment_id
     lead.converted_at = datetime.now(timezone.utc)
+    if lead.contacted_at is None:
+        lead.contacted_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(lead)
     return lead
+
+
+async def transition_status(
+    db: AsyncSession,
+    lead: Lead,
+    to_status: str,
+    user_id: uuid.UUID | None = None,
+    note: str | None = None,
+    lost_reason: str | None = None,
+) -> Lead:
+    """Move o lead para outro status validando a máquina de estados.
+
+    Cria automaticamente uma interação de tipo 'nota' registrando a mudança
+    para manter o histórico auditável. Não cria paciente/agendamento — para
+    converter use ``convert_lead`` (após criar o paciente).
+    """
+    from_status = lead.status
+    validate_transition(from_status, to_status)
+
+    if to_status in REQUIRES_LOST_REASON and not lost_reason:
+        raise InvalidTransitionError(
+            f"Status '{to_status}' requer motivo (lost_reason)."
+        )
+
+    if to_status == "convertido":
+        # Conversão deve passar por convert_lead que cria patient + appointment
+        raise InvalidTransitionError(
+            "Para 'convertido' use o endpoint /convert que cria paciente."
+        )
+
+    lead.status = to_status
+    if to_status == "perdido":
+        lead.lost_reason = lost_reason
+    elif from_status == "perdido":
+        # Reabertura: limpa motivo
+        lead.lost_reason = None
+
+    # Quando avança para qualquer estado pós-novo, registra contato
+    if to_status not in {"novo", "perdido"} and lead.contacted_at is None:
+        lead.contacted_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(lead)
+
+    # Registra interação automática
+    label_from = STATUS_LABELS.get(from_status, from_status)
+    label_to = STATUS_LABELS.get(to_status, to_status)
+    parts = [f"Status: {label_from} → {label_to}"]
+    if lost_reason:
+        parts.append(f"Motivo: {lost_reason}")
+    if note:
+        parts.append(note)
+    await create_interaction(
+        db,
+        lead_id=lead.id,
+        user_id=user_id,
+        type="nota",
+        content=" — ".join(parts),
+    )
+    return lead
+
+
+async def bulk_assign(
+    db: AsyncSession,
+    lead_ids: list[uuid.UUID],
+    assigned_to: uuid.UUID | None,
+    user_id: uuid.UUID | None = None,
+) -> int:
+    """Atribui vários leads ao mesmo responsável. Retorna a contagem afetada."""
+    if not lead_ids:
+        return 0
+    result = await db.execute(select(Lead).where(Lead.id.in_(lead_ids)))
+    leads = list(result.scalars().all())
+    count = 0
+    for lead in leads:
+        if lead.assigned_to != assigned_to:
+            lead.assigned_to = assigned_to
+            count += 1
+    if count:
+        await db.commit()
+        # Registra uma interação por lead alterado
+        for lead in leads:
+            if lead.assigned_to == assigned_to:
+                await create_interaction(
+                    db,
+                    lead_id=lead.id,
+                    user_id=user_id,
+                    type="nota",
+                    content=(
+                        f"Atribuído a {assigned_to}" if assigned_to else "Desatribuído"
+                    ),
+                )
+    return count
 
 
 # --- Interactions ---
@@ -235,6 +336,33 @@ async def get_sla_report(db: AsyncSession, date_from: datetime | None = None) ->
     sla_rate = round(100.0 * within_sla / total, 1) if total > 0 else 0.0
 
     return {"total": total, "within_sla": within_sla, "overdue": overdue, "sla_rate": sla_rate}
+
+
+async def get_pipeline_report(
+    db: AsyncSession, date_from: datetime | None = None
+) -> list[dict]:
+    """Métricas por etapa do pipeline: contagem, valor total e médio."""
+    query = (
+        select(
+            Lead.status,
+            func.count().label("total"),
+            func.coalesce(func.sum(Lead.quote_value), 0).label("value_total"),
+            func.coalesce(func.avg(Lead.quote_value), 0).label("value_avg"),
+        )
+        .group_by(Lead.status)
+    )
+    if date_from:
+        query = query.where(Lead.created_at >= date_from)
+    result = await db.execute(query)
+    return [
+        {
+            "status": row.status,
+            "total": row.total,
+            "value_total": float(row.value_total or 0),
+            "value_avg": float(row.value_avg or 0),
+        }
+        for row in result.all()
+    ]
 
 
 async def get_timeline(db: AsyncSession, date_from: datetime | None = None) -> list[dict]:

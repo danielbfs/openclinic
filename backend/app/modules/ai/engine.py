@@ -3,39 +3,57 @@ import json
 import logging
 
 from openai import AsyncOpenAI
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.modules.admin.models import Specialty
 from app.modules.ai.config_loader import load_ai_config, load_chatbot_config, load_clinic_config
 from app.modules.ai.prompts import build_system_prompt
 from app.modules.ai.session import load_session, save_session
 from app.modules.ai.tools import TOOL_DEFINITIONS, execute_tool
 from app.modules.crm.models import Patient
+from app.modules.scheduling.models import Doctor
 
 logger = logging.getLogger(__name__)
 
 
+async def _load_catalog(db: AsyncSession) -> tuple[list[dict], list[dict]]:
+    """Load active specialties and doctors so the LLM can pick the right UUIDs."""
+    spec_result = await db.execute(
+        select(Specialty).where(Specialty.is_active == True).order_by(Specialty.name)
+    )
+    specialties = [
+        {"id": str(s.id), "name": s.name} for s in spec_result.scalars().all()
+    ]
+
+    doc_result = await db.execute(
+        select(Doctor).where(Doctor.is_active == True).order_by(Doctor.full_name)
+    )
+    doctors = []
+    for d in doc_result.scalars().unique().all():
+        doctors.append(
+            {
+                "id": str(d.id),
+                "full_name": d.full_name,
+                "specialty_name": d.specialty.name if d.specialty else None,
+            }
+        )
+    return specialties, doctors
+
+
 def _get_client(ai_config: dict) -> AsyncOpenAI:
-    """Get the appropriate LLM client based on DB config."""
-    if ai_config.get("use_local_llm") and ai_config.get("local_llm_url"):
-        return AsyncOpenAI(
-            base_url=ai_config["local_llm_url"],
-            api_key="not-needed",
-        )
-    # Fallback: check env for local LLM
-    if settings.LOCAL_LLM_BASE_URL:
-        return AsyncOpenAI(
-            base_url=settings.LOCAL_LLM_BASE_URL,
-            api_key="not-needed",
-        )
-    return AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    """Get the appropriate LLM client. Admin's DB config takes precedence over env."""
+    if ai_config.get("use_local_llm"):
+        url = ai_config.get("local_llm_url") or settings.LOCAL_LLM_BASE_URL
+        if url:
+            return AsyncOpenAI(base_url=url, api_key="not-needed")
+    return AsyncOpenAI(api_key=settings.OPENAI_API_KEY or "missing")
 
 
 def _get_model(ai_config: dict) -> str:
-    if ai_config.get("use_local_llm") and ai_config.get("local_llm_model"):
-        return ai_config["local_llm_model"]
-    if settings.LOCAL_LLM_BASE_URL and settings.LOCAL_LLM_MODEL:
-        return settings.LOCAL_LLM_MODEL
+    if ai_config.get("use_local_llm"):
+        return ai_config.get("local_llm_model") or settings.LOCAL_LLM_MODEL
     return ai_config.get("model") or settings.OPENAI_MODEL
 
 
@@ -59,6 +77,7 @@ async def process_message(
 
     chatbot_config = await load_chatbot_config(db)
     clinic_config = await load_clinic_config(db)
+    specialties, doctors = await _load_catalog(db)
 
     client = _get_client(ai_config)
     model = _get_model(ai_config)
@@ -73,6 +92,8 @@ async def process_message(
         custom_prompt=chatbot_config.get("system_prompt", ""),
         clinic_name=clinic_config.get("name", ""),
         clinic_timezone=clinic_config.get("timezone", settings.CLINIC_TIMEZONE),
+        specialties=specialties,
+        doctors=doctors,
     )
     patient_context = (
         f"Paciente atual: {patient.full_name or 'nome não informado'} "

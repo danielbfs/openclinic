@@ -34,6 +34,12 @@ yarn-error.log*
 data/
 traefik/acme.json
 
+# Claude Code
+.claude/
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
 # IDEs
 .idea/
 .vscode/

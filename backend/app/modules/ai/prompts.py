@@ -27,8 +27,14 @@ def build_system_prompt(
     custom_prompt: str = "",
     clinic_name: str = "",
     clinic_timezone: str = "",
+    specialties: list[dict] | None = None,
+    doctors: list[dict] | None = None,
 ) -> str:
-    """Build the system prompt with current clinic context."""
+    """Build the system prompt with current clinic context.
+
+    `specialties` and `doctors` are lists of dicts the LLM uses to pick UUIDs
+    when calling tools (check_availability, book_appointment).
+    """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     tz = clinic_timezone or settings.CLINIC_TIMEZONE
     name = clinic_name or "a clínica"
@@ -39,7 +45,21 @@ Fuso horário da clínica: {tz}
 Data/hora atual: {now}
 """
 
+    catalog_parts = []
+    if specialties:
+        lines = "\n".join(f"- {s['name']} (id: {s['id']})" for s in specialties)
+        catalog_parts.append(f"Especialidades disponíveis:\n{lines}")
+    if doctors:
+        lines = "\n".join(
+            f"- {d['full_name']} (id: {d['id']}"
+            + (f", especialidade: {d['specialty_name']}" if d.get("specialty_name") else "")
+            + ")"
+            for d in doctors
+        )
+        catalog_parts.append(f"Médicos ativos:\n{lines}")
+    catalog = ("\n\n" + "\n\n".join(catalog_parts)) if catalog_parts else ""
+
     # Use custom prompt from admin if provided, otherwise use default
     instructions = custom_prompt.strip() if custom_prompt.strip() else DEFAULT_PROMPT
 
-    return f"{header}\n{context}\n{instructions}"
+    return f"{header}\n{context}{catalog}\n\n{instructions}"
