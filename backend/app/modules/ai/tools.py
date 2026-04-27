@@ -26,10 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_datetime_aware(value: str) -> datetime:
-    """Parse ISO 8601 string. If naive, assume clinic timezone."""
+    """Parse ISO 8601 string.
+    - Se já tem timezone explícito → usa como está.
+    - Se naive → trata como UTC (o LLM deve copiar o starts_at retornado por
+      check_availability, que é UTC; se chegar naive, é UTC sem offset).
+    """
     dt = datetime.fromisoformat(value)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=ZoneInfo(settings.CLINIC_TIMEZONE))
+        dt = dt.replace(tzinfo=timezone.utc)
     return dt
 
 # OpenAI function definitions
@@ -252,24 +256,28 @@ async def _check_availability(db: AsyncSession, args: dict) -> str:
     else:
         return json.dumps({"error": "Informe doctor_id ou specialty_id"})
 
-    # Convert UTC slots → clinic local timezone so the LLM shows correct local hours
+    # Mantém starts_at em UTC (para o LLM copiar literalmente ao agendar).
+    # Adiciona campo "display" em hora local para o LLM mostrar ao paciente.
+    # NUNCA retornar starts_at em hora local com offset — o LLM reconverteria
+    # para UTC e causaria dupla conversão.
     clinic_tz = ZoneInfo(settings.CLINIC_TIMEZONE)
-    local_slots = []
+    result_slots = []
     for slot in slots[:15]:
         start_utc = datetime.fromisoformat(slot["starts_at"])
         end_utc   = datetime.fromisoformat(slot["ends_at"])
         start_loc = start_utc.astimezone(clinic_tz)
         end_loc   = end_utc.astimezone(clinic_tz)
         entry: dict = {
-            "starts_at": start_loc.isoformat(),   # e.g. 2026-04-28T08:00:00-03:00
-            "ends_at":   end_loc.isoformat(),
-            "display":   start_loc.strftime("%d/%m/%Y %H:%M"),  # "28/04/2026 08:00"
+            "starts_at": slot["starts_at"],                          # UTC — copiar exatamente
+            "ends_at":   slot["ends_at"],                            # UTC
+            "display":   start_loc.strftime("%d/%m/%Y %H:%M"),       # hora local para exibir
+            "display_end": end_loc.strftime("%H:%M"),
         }
         if "doctor_id"   in slot: entry["doctor_id"]   = slot["doctor_id"]
         if "doctor_name" in slot: entry["doctor_name"] = slot["doctor_name"]
-        local_slots.append(entry)
+        result_slots.append(entry)
 
-    return json.dumps({"available_slots": local_slots, "total": len(slots)})
+    return json.dumps({"available_slots": result_slots, "total": len(slots)})
 
 
 async def _book_appointment(

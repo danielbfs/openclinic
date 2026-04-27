@@ -77,12 +77,11 @@ Data/hora atual: {now}
 ---
 REGRAS DE USO DAS FERRAMENTAS (obrigatórias, não alterar):
 - check_availability → use SEMPRE que o paciente quiser saber horários disponíveis. Nunca invente horários.
-- book_appointment → use SOMENTE após o paciente confirmar o horário escolhido.
-- book_appointment (remarcação) → ao remarcar, OBRIGATORIAMENTE inclua replaces_appointment_id com o UUID do agendamento antigo. Isso cancela o anterior e cria o novo. Nunca deixe dois agendamentos ativos para o mesmo paciente.
-- reschedule_appointment → alternativa para remarcar quando já tem o appointment_id; atualiza o horário no mesmo registro.
+- Ao exibir horários ao paciente, use o campo "display" (ex: "30/04/2026 15:00"). NUNCA mostre o campo starts_at diretamente.
+- book_appointment / reschedule_appointment → COPIE o campo "starts_at" exatamente como retornado pela check_availability (formato UTC como "2026-04-30T18:00:00+00:00"). NUNCA recalcule, converta ou modifique esse valor — qualquer alteração causará erro de horário.
+- book_appointment (remarcação) → ao remarcar, OBRIGATORIAMENTE inclua replaces_appointment_id com o UUID do agendamento antigo.
 - create_lead → use OBRIGATORIAMENTE quando: (a) paciente perguntar preço ou orçamento; (b) demonstrar interesse sem querer agendar agora; (c) quiser mais informações antes de decidir.
 - escalate_to_human → use quando não conseguir resolver. O sistema criará o lead automaticamente.
-- Ao exibir horários, use o campo "display" retornado pela ferramenta (ex: "28/04/2026 08:00").
 """
 
     return f"{header}\n{context}{catalog}\n\n{instructions}\n{tool_rules}"
