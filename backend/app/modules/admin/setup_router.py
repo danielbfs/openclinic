@@ -4,7 +4,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query, Request
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -174,7 +175,6 @@ async def setup_whatsapp_webhook(
     scheme = "https" if settings.ENVIRONMENT == "production" else "http"
     webhook_url = f"{scheme}://{settings.DOMAIN}/webhooks/whatsapp/{settings.EVOLUTION_API_KEY}"
 
-    import httpx
     url = f"{settings.EVOLUTION_API_URL.rstrip('/')}/webhook/set/{settings.EVOLUTION_INSTANCE_NAME}"
     headers = {"apikey": settings.EVOLUTION_API_KEY, "Content-Type": "application/json"}
     payload = {
@@ -320,6 +320,111 @@ async def update_notifications_settings(
         request=request,
     )
     return payload
+
+
+# ── Evolution API management ──────────────────────────────────────────────────
+
+
+class CreateInstanceRequest(BaseModel):
+    instance_name: str
+
+
+async def _evo(method: str, path: str, payload: dict | None = None) -> tuple[int, dict | list]:
+    """Proxy a request to the internal Evolution API."""
+    base = (settings.EVOLUTION_API_URL or "").rstrip("/")
+    if not base:
+        return 503, {"error": "EVOLUTION_API_URL not configured"}
+    headers = {"apikey": settings.EVOLUTION_API_KEY, "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            if method == "GET":
+                resp = await client.get(f"{base}{path}", headers=headers)
+            elif method == "POST":
+                resp = await client.post(f"{base}{path}", json=payload or {}, headers=headers)
+            elif method == "DELETE":
+                resp = await client.delete(f"{base}{path}", headers=headers)
+            else:
+                return 400, {"error": "invalid method"}
+        try:
+            return resp.status_code, resp.json()
+        except Exception:
+            return resp.status_code, {}
+    except Exception as exc:
+        logger.exception("Evolution API request failed: %s", exc)
+        return 503, {"error": str(exc)}
+
+
+@router.get("/evolution/status")
+async def evolution_status(current_user: User = Depends(require_role("admin"))):
+    status_code, data = await _evo("GET", "/")
+    version = data.get("version") if isinstance(data, dict) else None
+    return {"online": status_code < 400, "version": version}
+
+
+@router.get("/evolution/instances")
+async def list_evolution_instances(current_user: User = Depends(require_role("admin"))):
+    status_code, data = await _evo("GET", "/instance/fetchInstances")
+    if status_code >= 400:
+        return []
+    items = data if isinstance(data, list) else []
+    return [
+        {
+            "name": inst.get("name") or inst.get("instanceName", ""),
+            "status": inst.get("connectionStatus", inst.get("state", "close")),
+            "phone": ((inst.get("ownerJid") or "").split("@")[0]) or None,
+            "profile_name": inst.get("profileName"),
+        }
+        for inst in items
+    ]
+
+
+@router.post("/evolution/instances")
+async def create_evolution_instance(
+    body: CreateInstanceRequest,
+    current_user: User = Depends(require_role("admin")),
+):
+    status_code, data = await _evo("POST", "/instance/create", {
+        "instanceName": body.instance_name,
+        "integration": "WHATSAPP-BAILEYS",
+        "qrcode": True,
+    })
+    if status_code >= 400:
+        detail = data.get("error") or data.get("message", "Falha ao criar instância") if isinstance(data, dict) else "Erro"
+        raise HTTPException(status_code=status_code, detail=detail)
+    qr = data.get("qrcode", {}) if isinstance(data, dict) else {}
+    return {
+        "instance_name": body.instance_name,
+        "qr_code": qr.get("base64"),
+        "qr_code_text": qr.get("code"),
+    }
+
+
+@router.get("/evolution/instances/{instance_name}/qrcode")
+async def get_instance_qrcode(instance_name: str, current_user: User = Depends(require_role("admin"))):
+    status_code, data = await _evo("GET", f"/instance/connect/{instance_name}")
+    if status_code >= 400:
+        raise HTTPException(status_code=status_code, detail="Falha ao obter QR Code")
+    return {
+        "qr_code": data.get("base64") if isinstance(data, dict) else None,
+        "qr_code_text": data.get("code") if isinstance(data, dict) else None,
+    }
+
+
+@router.get("/evolution/instances/{instance_name}/status")
+async def get_instance_connection_status(instance_name: str, current_user: User = Depends(require_role("admin"))):
+    status_code, data = await _evo("GET", f"/instance/connectionState/{instance_name}")
+    if status_code >= 400:
+        return {"status": "error"}
+    instance = data.get("instance", {}) if isinstance(data, dict) else {}
+    return {"status": instance.get("state", "close")}
+
+
+@router.delete("/evolution/instances/{instance_name}", status_code=204)
+async def delete_evolution_instance(instance_name: str, current_user: User = Depends(require_role("admin"))):
+    status_code, data = await _evo("DELETE", f"/instance/delete/{instance_name}")
+    if status_code >= 400:
+        detail = data.get("error", "Falha ao remover instância") if isinstance(data, dict) else "Erro"
+        raise HTTPException(status_code=status_code, detail=detail)
 
 
 @router.get("/audit-logs", response_model=list[AuditLogResponse])
