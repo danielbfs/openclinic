@@ -17,8 +17,8 @@ export default function SharedInbox() {
 
   async function loadConversations() {
     try {
-      const data = await api.get<MessagingConversation[]>('/messaging/conversations');
-      setConversations(data);
+      const response = await api.get<MessagingConversation[]>('/messaging/conversations');
+      setConversations(response.data);
     } catch (error) {
       console.error('Failed to load conversations', error);
     } finally {
