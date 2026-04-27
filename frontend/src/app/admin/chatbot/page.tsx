@@ -87,7 +87,11 @@ export default function ChatbotPage() {
     try {
       const { data } = await api.get("/admin/settings");
       setAi(data.ai);
-      setChatbot(data.chatbot);
+      // Pre-fill with default prompt when empty so the admin can see and edit it
+      setChatbot({
+        ...data.chatbot,
+        system_prompt: data.chatbot.system_prompt || DEFAULT_PROMPT,
+      });
     } catch { /* ignore */ } finally { setLoading(false); }
   }
 
@@ -229,13 +233,13 @@ export default function ChatbotPage() {
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-sm font-medium text-gray-700">Instruções do Chatbot (System Prompt)</label>
-                <button onClick={() => setChatbot({ ...chatbot, system_prompt: "" })}
+                <button onClick={() => setChatbot({ ...chatbot, system_prompt: DEFAULT_PROMPT })}
                   className="text-xs text-blue-600 hover:underline">Restaurar padrão</button>
               </div>
-              <textarea value={chatbot.system_prompt || ""} onChange={(e) => setChatbot({ ...chatbot, system_prompt: e.target.value })}
-                rows={14} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" placeholder={DEFAULT_PROMPT} />
+              <textarea value={chatbot.system_prompt} onChange={(e) => setChatbot({ ...chatbot, system_prompt: e.target.value })}
+                rows={16} className="w-full border rounded-lg px-3 py-2 text-sm font-mono leading-relaxed" />
               <p className="text-xs text-gray-400 mt-1">
-                Deixe vazio para usar o prompt padrão. Edite para personalizar o tom ou regras da sua clínica.
+                Edite as instruções acima para personalizar o comportamento da IA. Clique em "Restaurar padrão" para voltar ao texto original.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-4">
