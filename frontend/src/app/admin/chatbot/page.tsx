@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+
+// ── tipos ──────────────────────────────────────────────────────────────────
 
 interface AISettings {
   type: string;
@@ -17,17 +19,24 @@ interface ChatbotSettings {
   temperature: number;
 }
 
+interface ChatMsg {
+  role: "user" | "assistant" | "error";
+  content: string;
+}
+
+// ── constantes ─────────────────────────────────────────────────────────────
+
 const OPENAI_MODELS = [
-  { value: "gpt-4o", label: "GPT-4o (mais capaz)" },
-  { value: "gpt-4o-mini", label: "GPT-4o Mini (custo-benefício)" },
-  { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
+  { value: "gpt-4o",       label: "GPT-4o (mais capaz)"      },
+  { value: "gpt-4o-mini",  label: "GPT-4o Mini (custo-benefício)" },
+  { value: "gpt-4-turbo",  label: "GPT-4 Turbo"              },
 ];
 
 const LOCAL_MODELS = [
   { value: "llama3.2", label: "Llama 3.2" },
   { value: "llama3.1", label: "Llama 3.1" },
-  { value: "mistral", label: "Mistral" },
-  { value: "gemma2", label: "Gemma 2" },
+  { value: "mistral",  label: "Mistral"   },
+  { value: "gemma2",   label: "Gemma 2"   },
 ];
 
 const DEFAULT_PROMPT = `Suas responsabilidades:
@@ -48,38 +57,38 @@ Regras IMPORTANTES:
 - Seja conciso — mensagens curtas e diretas são melhores em chat
 - Formate datas como "segunda-feira, 28 de abril às 14:00"`;
 
-export default function ChatbotPage() {
-  const [loading, setLoading] = useState(true);
-  const [ai, setAi] = useState<AISettings>({
-    type: "openai",
-    model: "gpt-4o-mini",
-    use_local_llm: false,
-    local_llm_url: "",
-    local_llm_model: "",
-  });
-  const [chatbot, setChatbot] = useState<ChatbotSettings>({
-    system_prompt: "",
-    max_tool_calls: 3,
-    temperature: 0.3,
-  });
-  const [savingAi, setSavingAi] = useState(false);
-  const [savingChatbot, setSavingChatbot] = useState(false);
-  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+// ── componente ─────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
+export default function ChatbotPage() {
+  const [loading, setLoading]   = useState(true);
+  const [ai, setAi]             = useState<AISettings>({
+    type: "openai", model: "gpt-4o-mini",
+    use_local_llm: false, local_llm_url: "", local_llm_model: "",
+  });
+  const [chatbot, setChatbot]   = useState<ChatbotSettings>({
+    system_prompt: "", max_tool_calls: 3, temperature: 0.3,
+  });
+  const [savingAi, setSavingAi]         = useState(false);
+  const [savingChatbot, setSavingChatbot] = useState(false);
+  const [savedMsg, setSavedMsg]          = useState<string | null>(null);
+
+  // chat de teste
+  const [sessionId]        = useState<string>(() => crypto.randomUUID());
+  const [msgs, setMsgs]    = useState<ChatMsg[]>([]);
+  const [input, setInput]  = useState("");
+  const [sending, setSending] = useState(false);
+  const bottomRef          = useRef<HTMLDivElement>(null);
+  const inputRef           = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { fetchSettings(); }, []);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, sending]);
 
   async function fetchSettings() {
     try {
       const { data } = await api.get("/admin/settings");
       setAi(data.ai);
       setChatbot(data.chatbot);
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
+    } catch { /* ignore */ } finally { setLoading(false); }
   }
 
   function showSaved(msg: string) {
@@ -89,30 +98,51 @@ export default function ChatbotPage() {
 
   async function saveAi() {
     setSavingAi(true);
-    try {
-      await api.patch("/admin/settings/ai", ai);
-      showSaved("Configuração de IA salva.");
-    } catch {
-      alert("Erro ao salvar.");
-    } finally {
-      setSavingAi(false);
-    }
+    try { await api.patch("/admin/settings/ai", ai); showSaved("Configuração de IA salva."); }
+    catch { alert("Erro ao salvar."); } finally { setSavingAi(false); }
   }
 
   async function saveChatbot() {
     setSavingChatbot(true);
+    try { await api.patch("/admin/settings/chatbot", chatbot); showSaved("Prompt do chatbot salvo."); }
+    catch { alert("Erro ao salvar."); } finally { setSavingChatbot(false); }
+  }
+
+  // ── chat handlers ──────────────────────────────────────────────────────
+
+  async function sendMessage() {
+    const text = input.trim();
+    if (!text || sending) return;
+    setInput("");
+    setMsgs((prev) => [...prev, { role: "user", content: text }]);
+    setSending(true);
     try {
-      await api.patch("/admin/settings/chatbot", chatbot);
-      showSaved("Prompt do chatbot salvo.");
+      const { data } = await api.post("/admin/chat/test", {
+        message: text,
+        session_id: sessionId,
+      });
+      setMsgs((prev) => [...prev, { role: "assistant", content: data.response }]);
     } catch {
-      alert("Erro ao salvar.");
+      setMsgs((prev) => [
+        ...prev,
+        { role: "error", content: "Erro ao conectar com a IA. Verifique as configurações de provedor." },
+      ]);
     } finally {
-      setSavingChatbot(false);
+      setSending(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
   }
 
-  function resetPrompt() {
-    setChatbot({ ...chatbot, system_prompt: "" });
+  async function clearChat() {
+    try { await api.delete(`/admin/chat/test/${sessionId}`); } catch { /* ignore */ }
+    setMsgs([]);
+  }
+
+  function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
   }
 
   if (loading) return <div className="p-8 text-gray-400">Carregando...</div>;
@@ -128,90 +158,53 @@ export default function ChatbotPage() {
       )}
 
       <div className="space-y-6">
-        {/* AI Provider */}
+
+        {/* ── Provedor de IA ───────────────────────────────────── */}
         <div className="bg-white border rounded-lg p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Provedor de IA</h2>
           <p className="text-sm text-gray-500 mb-4">
             Escolha qual serviço de IA o chatbot usará para conversar com os pacientes.
           </p>
 
-          {/* Toggle LLM local */}
           <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
             <input
               type="checkbox"
               checked={ai.use_local_llm}
-              onChange={(e) =>
-                setAi({
-                  ...ai,
-                  use_local_llm: e.target.checked,
-                  type: e.target.checked ? "local" : "openai",
-                })
-              }
+              onChange={(e) => setAi({ ...ai, use_local_llm: e.target.checked, type: e.target.checked ? "local" : "openai" })}
               id="use_local"
               className="rounded"
             />
             <label htmlFor="use_local" className="text-sm text-gray-700">
               <span className="font-medium">Usar LLM Local (Ollama)</span>
-              <span className="block text-xs text-gray-500">
-                Requer VPS com 8+ vCPU e 16GB RAM. Sem custo de API, mas mais lento.
-              </span>
+              <span className="block text-xs text-gray-500">Requer VPS com 8+ vCPU e 16GB RAM. Sem custo de API, mas mais lento.</span>
             </label>
           </div>
 
           {ai.use_local_llm ? (
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  URL do Ollama
-                </label>
-                <input
-                  value={ai.local_llm_url}
-                  onChange={(e) => setAi({ ...ai, local_llm_url: e.target.value })}
-                  placeholder="http://ollama:11434/v1"
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  Se Ollama está no mesmo Docker Compose, use http://ollama:11434/v1
-                </p>
+                <label className="block text-sm font-medium text-gray-700 mb-1">URL do Ollama</label>
+                <input value={ai.local_llm_url} onChange={(e) => setAi({ ...ai, local_llm_url: e.target.value })}
+                  placeholder="http://ollama:11434/v1" className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <p className="text-xs text-gray-400 mt-1">Se Ollama está no mesmo Docker Compose, use http://ollama:11434/v1</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Modelo</label>
-                <select
-                  value={ai.local_llm_model}
-                  onChange={(e) => setAi({ ...ai, local_llm_model: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                >
+                <select value={ai.local_llm_model} onChange={(e) => setAi({ ...ai, local_llm_model: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm">
                   <option value="">Selecione...</option>
-                  {LOCAL_MODELS.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
+                  {LOCAL_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                 </select>
-                <p className="text-xs text-gray-400 mt-1">
-                  Ou digite o nome do modelo se não estiver na lista
-                </p>
-                <input
-                  value={ai.local_llm_model}
-                  onChange={(e) => setAi({ ...ai, local_llm_model: e.target.value })}
-                  placeholder="nome-do-modelo"
-                  className="w-full border rounded-lg px-3 py-2 text-sm mt-1"
-                />
+                <input value={ai.local_llm_model} onChange={(e) => setAi({ ...ai, local_llm_model: e.target.value })}
+                  placeholder="nome-do-modelo" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
               </div>
             </div>
           ) : (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Modelo OpenAI</label>
-              <select
-                value={ai.model}
-                onChange={(e) => setAi({ ...ai, model: e.target.value })}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              >
-                {OPENAI_MODELS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
+              <select value={ai.model} onChange={(e) => setAi({ ...ai, model: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm">
+                {OPENAI_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
               <p className="text-xs text-gray-400 mt-1">
                 A API key é configurada no .env (OPENAI_API_KEY). O modelo selecionado aqui é usado pelo chatbot.
@@ -219,20 +212,15 @@ export default function ChatbotPage() {
             </div>
           )}
 
-          <button
-            onClick={saveAi}
-            disabled={savingAi}
-            className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
+          <button onClick={saveAi} disabled={savingAi}
+            className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
             {savingAi ? "Salvando..." : "Salvar Configuração de IA"}
           </button>
         </div>
 
-        {/* Chatbot Behavior */}
+        {/* ── Comportamento do chatbot ─────────────────────────── */}
         <div className="bg-white border rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">
-            Comportamento do Chatbot
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Comportamento do Chatbot</h2>
           <p className="text-sm text-gray-500 mb-4">
             Personalize como o assistente virtual se comporta nas conversas com pacientes.
           </p>
@@ -240,106 +228,152 @@ export default function ChatbotPage() {
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-sm font-medium text-gray-700">
-                  Instruções do Chatbot (System Prompt)
-                </label>
-                <button
-                  onClick={resetPrompt}
-                  className="text-xs text-blue-600 hover:underline"
-                >
-                  Restaurar padrão
-                </button>
+                <label className="block text-sm font-medium text-gray-700">Instruções do Chatbot (System Prompt)</label>
+                <button onClick={() => setChatbot({ ...chatbot, system_prompt: "" })}
+                  className="text-xs text-blue-600 hover:underline">Restaurar padrão</button>
               </div>
-              <textarea
-                value={chatbot.system_prompt || ""}
-                onChange={(e) => setChatbot({ ...chatbot, system_prompt: e.target.value })}
-                rows={14}
-                className="w-full border rounded-lg px-3 py-2 text-sm font-mono"
-                placeholder={DEFAULT_PROMPT}
-              />
+              <textarea value={chatbot.system_prompt || ""} onChange={(e) => setChatbot({ ...chatbot, system_prompt: e.target.value })}
+                rows={14} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" placeholder={DEFAULT_PROMPT} />
               <p className="text-xs text-gray-400 mt-1">
-                Deixe vazio para usar o prompt padrão. Edite para personalizar o tom, regras
-                especiais da sua clínica, ou instruções adicionais.
+                Deixe vazio para usar o prompt padrão. Edite para personalizar o tom ou regras da sua clínica.
               </p>
             </div>
-
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Temperatura
-                </label>
-                <input
-                  type="number"
-                  value={chatbot.temperature}
-                  onChange={(e) =>
-                    setChatbot({ ...chatbot, temperature: Number(e.target.value) })
-                  }
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  0 = mais preciso, 1 = mais criativo. Recomendado: 0.3
-                </p>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Temperatura</label>
+                <input type="number" value={chatbot.temperature}
+                  onChange={(e) => setChatbot({ ...chatbot, temperature: Number(e.target.value) })}
+                  min={0} max={1} step={0.1} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <p className="text-xs text-gray-400 mt-1">0 = mais preciso, 1 = mais criativo. Recomendado: 0.3</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Max Tool Calls
-                </label>
-                <input
-                  type="number"
-                  value={chatbot.max_tool_calls}
-                  onChange={(e) =>
-                    setChatbot({ ...chatbot, max_tool_calls: Number(e.target.value) })
-                  }
-                  min={1}
-                  max={10}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  Limite de ações por mensagem (agendar, verificar, etc.)
-                </p>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Max Tool Calls</label>
+                <input type="number" value={chatbot.max_tool_calls}
+                  onChange={(e) => setChatbot({ ...chatbot, max_tool_calls: Number(e.target.value) })}
+                  min={1} max={10} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <p className="text-xs text-gray-400 mt-1">Limite de ações por mensagem (agendar, verificar, etc.)</p>
               </div>
             </div>
           </div>
 
-          <button
-            onClick={saveChatbot}
-            disabled={savingChatbot}
-            className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
+          <button onClick={saveChatbot} disabled={savingChatbot}
+            className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
             {savingChatbot ? "Salvando..." : "Salvar Comportamento"}
           </button>
         </div>
 
-        {/* Preview */}
+        {/* ── Resumo ativo ─────────────────────────────────────── */}
         <div className="bg-gray-50 border rounded-lg p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Resumo Ativo</h2>
           <div className="text-sm text-gray-600 space-y-1">
-            <p>
-              <span className="font-medium">Provedor:</span>{" "}
-              {ai.use_local_llm ? "LLM Local (Ollama)" : "OpenAI"}
-            </p>
-            <p>
-              <span className="font-medium">Modelo:</span>{" "}
-              {ai.use_local_llm ? ai.local_llm_model || "não definido" : ai.model}
-            </p>
-            {ai.use_local_llm && (
-              <p>
-                <span className="font-medium">URL:</span>{" "}
-                {ai.local_llm_url || "não definido"}
-              </p>
-            )}
-            <p>
-              <span className="font-medium">Temperatura:</span> {chatbot.temperature}
-            </p>
-            <p>
-              <span className="font-medium">Prompt personalizado:</span>{" "}
-              {chatbot.system_prompt ? "Sim" : "Usando padrão"}
-            </p>
+            <p><span className="font-medium">Provedor:</span> {ai.use_local_llm ? "LLM Local (Ollama)" : "OpenAI"}</p>
+            <p><span className="font-medium">Modelo:</span> {ai.use_local_llm ? ai.local_llm_model || "não definido" : ai.model}</p>
+            {ai.use_local_llm && <p><span className="font-medium">URL:</span> {ai.local_llm_url || "não definido"}</p>}
+            <p><span className="font-medium">Temperatura:</span> {chatbot.temperature}</p>
+            <p><span className="font-medium">Prompt personalizado:</span> {chatbot.system_prompt ? "Sim" : "Usando padrão"}</p>
           </div>
         </div>
+
+        {/* ── Chat de teste ─────────────────────────────────────── */}
+        <div className="bg-white border rounded-xl overflow-hidden shadow-sm">
+          {/* header */}
+          <div className="flex items-center justify-between px-5 py-3 border-b bg-gray-50">
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+              <span className="text-sm font-semibold text-gray-800">Testar Chatbot</span>
+              <span className="text-xs text-gray-400 ml-1">— simulação em tempo real</span>
+            </div>
+            <button onClick={clearChat}
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1 rounded hover:bg-red-50">
+              Limpar conversa
+            </button>
+          </div>
+
+          {/* aviso */}
+          <div className="px-5 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-700">
+            Esta conversa usa o engine real (mesmo prompt, ferramentas e modelo configurados acima).
+            Consultas de disponibilidade funcionam normalmente. Agendamentos criados aqui são registros reais.
+          </div>
+
+          {/* mensagens */}
+          <div className="h-96 overflow-y-auto px-5 py-4 space-y-4 bg-gray-50/50">
+            {msgs.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
+                <svg className="w-10 h-10 mb-2 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                    d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                </svg>
+                <p className="text-sm">Envie uma mensagem para testar o chatbot.</p>
+                <p className="text-xs mt-1">Ex: "Quero marcar uma consulta" ou "Quais médicos vocês têm?"</p>
+              </div>
+            )}
+
+            {msgs.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                {msg.role !== "user" && (
+                  <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold mr-2 mt-0.5 shrink-0">
+                    IA
+                  </div>
+                )}
+                <div className={`
+                  max-w-[78%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap
+                  ${msg.role === "user"
+                    ? "bg-blue-600 text-white rounded-tr-sm"
+                    : msg.role === "error"
+                      ? "bg-red-50 text-red-700 border border-red-200 rounded-tl-sm"
+                      : "bg-white text-gray-800 border border-gray-200 shadow-sm rounded-tl-sm"
+                  }
+                `}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+
+            {/* indicador de digitando */}
+            {sending && (
+              <div className="flex justify-start">
+                <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold mr-2 mt-0.5 shrink-0">
+                  IA
+                </div>
+                <div className="bg-white border border-gray-200 shadow-sm rounded-2xl rounded-tl-sm px-4 py-3">
+                  <div className="flex gap-1 items-center">
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={bottomRef} />
+          </div>
+
+          {/* input */}
+          <div className="flex items-end gap-2 px-4 py-3 border-t bg-white">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              rows={1}
+              placeholder="Digite uma mensagem... (Enter para enviar, Shift+Enter para nova linha)"
+              className="flex-1 resize-none border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent max-h-32 overflow-y-auto"
+              style={{ lineHeight: "1.5" }}
+              disabled={sending}
+            />
+            <button
+              onClick={sendMessage}
+              disabled={sending || !input.trim()}
+              className="shrink-0 bg-blue-600 text-white rounded-xl w-10 h-10 flex items-center justify-center hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
       </div>
     </main>
   );

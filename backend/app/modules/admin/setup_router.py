@@ -1,6 +1,7 @@
 """Admin setup endpoints — clinic settings, Telegram webhook, integrations status."""
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -73,6 +74,11 @@ class AllSettings(BaseModel):
     ai: AISettings
     chatbot: ChatbotSettings
     notifications: NotificationsSettings
+
+
+class TestChatRequest(BaseModel):
+    message: str
+    session_id: str  # UUID string — identifica a sessão de teste no Redis
 
 
 class AuditLogResponse(BaseModel):
@@ -296,3 +302,47 @@ async def list_audit_logs(
         query = query.where(AuditLog.created_at <= date_to)
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+# ── Test chat ─────────────────────────────────────────────────────────────────
+
+@dataclass
+class _TestPatient:
+    """Paciente virtual para sessões de teste. Não é persistido no banco."""
+    id: uuid.UUID
+    full_name: str = "Admin (Teste)"
+
+
+@router.post("/chat/test")
+async def test_chat(
+    body: TestChatRequest,
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Envia uma mensagem para a IA usando o mesmo engine do Telegram/WhatsApp.
+    A sessão é armazenada no Redis com TTL de 24h e não cria pacientes reais.
+    """
+    from app.modules.ai.engine import process_message
+
+    try:
+        session_uuid = uuid.UUID(body.session_id)
+    except ValueError:
+        session_uuid = uuid.uuid4()
+
+    patient = _TestPatient(id=session_uuid)
+    response = await process_message(db, patient, body.message)  # type: ignore[arg-type]
+    return {"response": response, "session_id": str(session_uuid)}
+
+
+@router.delete("/chat/test/{session_id}", status_code=204)
+async def clear_test_chat(
+    session_id: str,
+    current_user: User = Depends(require_role("admin")),
+):
+    """Apaga o histórico da sessão de teste no Redis."""
+    from app.modules.ai.session import clear_session
+
+    try:
+        await clear_session(uuid.UUID(session_id))
+    except Exception:
+        pass
