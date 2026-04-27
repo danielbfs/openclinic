@@ -50,7 +50,7 @@ backend/app/modules/
 | `schemas.py` | `MessagePayload` — formato normalizado independente de canal |
 | `adapters/base.py` | `AbstractMessagingAdapter` |
 | `adapters/telegram.py` | Parsing de update Telegram, envio via Bot API |
-| `adapters/whatsapp.py` | Parsing de webhook Evolution API, envio de mensagem |
+| `adapters/evolution_api.py` | Integração com WhatsApp via Evolution API (WebSocket/Webhook) |
 
 **Segurança:** Webhooks validados por `secret_token` (Telegram) ou HMAC (WhatsApp).
 
@@ -58,17 +58,19 @@ backend/app/modules/
 
 ## ai
 
-**Responsabilidade:** Gerenciar sessão de conversa, chamar LLM, executar tools (function calling).
+**Responsabilidade:** Gerenciar sessão de conversa, chamar LLM, executar tools (function calling) e orquestrar streaming para IA Visual.
 
 | Arquivo | Função |
 |---|---|
-| `engine.py` | Orquestrador: monta contexto, chama LLM, executa tools (loop até 3x) |
+| `engine.py` | Orquestrador: monta contexto, chama LLM, executa tools, suporte a stream para avatar |
 | `session.py` | Histórico de conversa no Redis (TTL 24h), fallback para DB |
-| `tools.py` | Definição das tools disponíveis para o LLM |
-| `prompts.py` | System prompt base + templates configuráveis |
-| `adapters/base.py` | `AbstractLLMAdapter` |
-| `adapters/openai.py` | Integração `openai.AsyncOpenAI` |
-| `adapters/local_llm.py` | Endpoint compatível OpenAI (Ollama, LM Studio) |
+| `tools.py` | Definição das tools disponíveis (agendamento, FAQ, triagem) |
+| `prompts.py` | System prompt base + templates de personalidade do avatar |
+| `adapters/visual_ai.py` | Orquestração de tokens e sessões para HeyGen / Hume AI |
+
+**Novas Funcionalidades (Roadmap 2.0):**
+- **Streaming Mode:** Redução de latência para conversas por voz/avatar.
+- **Voice-to-Intent:** Processamento de transcrições vindas do frontend.
 
 **Tools disponíveis para o LLM:**
 - `check_availability(specialty_id, date_from, date_to)`

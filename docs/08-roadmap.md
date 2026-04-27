@@ -1,110 +1,82 @@
 ---
 tags: [openclinic, roadmap]
-created: 2026-04-23
-status: draft
+created: 2026-04-27
+status: active
+version: 2.0
 ---
 
-# Roadmap — Open Clinic AI
+# Roadmap 2.0 — Open Clinic AI
 
-## Phase 1 — MVP (8–10 semanas)
+Este roadmap prioriza a experiência do paciente e o retorno sobre investimento (ROI) da clínica, focando em humanização via IA Visual e dominância do canal WhatsApp.
 
-**Objetivo:** Clínica consegue receber pacientes pelo Telegram, agendar, gerenciar leads com SLA e visualizar na interface da secretária.
+## Phase 1 — MVP & Consolidação (Conclusão)
+
+**Objetivo:** Fluxo base funcional para operação interna da clínica e recepção via Telegram.
 
 ### Infra e Base
-- [ ] Scaffold completo (Docker, FastAPI, Next.js, PostgreSQL, Redis, Traefik)
-- [ ] Migrations com Alembic
-- [ ] Auth (JWT, roles admin/secretary)
-- [ ] CI/CD básico (GitHub Actions → build)
+- [x] Scaffold completo (Docker, FastAPI, Next.js, PostgreSQL, Redis, Traefik)
+- [x] Migrations com Alembic
+- [x] Auth (JWT, roles admin/secretary)
+- [x] CI/CD básico (GitHub Actions)
 
-### Backend
-- [ ] CRM — CRUD de pacientes
-- [ ] Módulo de especialidades e médicos
-- [ ] SchedulingService — adapter `local_db`
-- [ ] Regras de disponibilidade (doctor_schedules)
-- [ ] Cálculo de slots disponíveis
-- [ ] Agendamentos (criação, cancelamento, constraint de conflito)
-- [ ] **Leads — CRUD + pipeline + interações**
-- [ ] **SLA de leads — Celery Beat, check 15min, notificação**
-- [ ] **Webhook de entrada de leads externos (/leads/webhook/inbound)**
-- [ ] **Conversão lead → paciente → agendamento**
-- [ ] Integração Telegram (webhook + envio)
-- [ ] AI Engine com OpenAI (tools: check_availability, book_appointment, cancel, reschedule)
-- [ ] Follow-up: lembrete 24h antes (Celery)
-- [ ] Audit log
+### Backend & Core
+- [x] CRM — CRUD de pacientes e histórico
+- [x] Módulo de especialidades e médicos
+- [x] SchedulingService — adapter `local_db`
+- [x] Regras de disponibilidade e cálculo de slots
+- [x] Agendamentos (criação, cancelamento, conflitos)
+- [x] Leads — CRUD, pipeline e interações
+- [x] SLA de leads — Celery Beat + Notificações Telegram
+- [x] Webhook de entrada de leads externos
+- [x] AI Engine — Function calling (check, book, cancel)
+- [x] Follow-up — Lembretes básicos via Celery
+- [ ] **Ajuste:** Audit Log detalhado para conformidade médica (em progresso)
+- [ ] **Ajuste:** Dashboard de Conversão Real (leads vs. agendamentos efetivados)
 
 ### Frontend
-- [ ] Auth (login, proteção de rotas por role)
-- [ ] Interface Secretária: calendário de agendamentos
-- [ ] Interface Secretária: agendamento manual
-- [ ] **Interface Secretária: Kanban de leads**
-- [ ] **Interface Secretária: detalhe do lead + interações**
-- [ ] Admin Wizard: setup clínica, Telegram, OpenAI, SLA
-- [ ] Admin: gestão de médicos, especialidades, disponibilidade
-
-### Relatórios (MVP)
-- [ ] **Funil de leads (por status)**
-- [ ] **Leads por origem/canal**
-- [ ] **SLA compliance**
+- [x] Interface Secretária: Calendário e Agendamento Manual
+- [x] Interface Secretária: Kanban de Leads e Detalhes
+- [x] Admin: Gestão de médicos, especialidades e horários
+- [x] Admin Wizard: Setup inicial da clínica e integrações
 
 ---
 
-## Phase 2 (10 semanas após MVP aprovado)
+## Phase 2 — A "Secretária do Futuro" (Próximos Passos)
 
-### Mensageria
-- [ ] WhatsApp via Evolution API
+**Objetivo:** Transformar o atendimento digital em uma experiência humana e proativa que gera vendas.
 
-### Agendamento
-- [ ] Google Calendar adapter + fluxo OAuth
+### Experiência Visual e Voz (IA Visual)
+- [ ] **Integração HeyGen/Hume AI:** Streaming de Avatar em tempo real no site da clínica.
+- [ ] **Voice-to-Intent:** Interface de voz para agendamento natural sem digitação.
+- [ ] **Setup do Avatar:** Escolha de rosto e personalidade da "Secretária Virtual" no Admin.
 
-### IA
-- [ ] Local LLM support (Ollama / LM Studio)
-- [ ] Prompt configurável pelo admin
+### Mensageria Dominante
+- [ ] **WhatsApp (Evolution API):** Integração completa como canal principal.
+- [ ] **Shared Inbox:** Interface para secretária humana assumir conversas do WhatsApp.
+- [ ] **Notificações Ativas:** Confirmação de consulta via áudio ou texto natural no WhatsApp.
 
-### Leads e Marketing
-- [ ] **Integração nativa Meta Lead Ads (webhook oficial)**
-- [ ] **Integração Google Ads Lead Form Extension**
-- [ ] **Relatórios avançados: campanhas UTM, receita estimada**
-- [ ] **Performance por secretária**
-- [ ] **Export CSV em todos os relatórios**
-
-### Follow-up
-- [ ] No-show recovery automático
-- [ ] Follow-up pós-consulta (avaliação)
-- [ ] Configuração completa via admin panel
-
-### Qualidade
-- [ ] Testes automatizados (pytest, cobertura ≥70%)
-- [ ] GitHub Actions: build + push imagens GHCR
-- [ ] Documentação de contribuição (CONTRIBUTING.md)
+### Inteligência de Ocupação (ROI)
+- [ ] **Recuperação de No-show:** Oferta ativa de vagas remanescentes para leads em espera.
+- [ ] **Antecipação de Agenda:** IA detecta buracos na agenda e convida pacientes de datas distantes para antecipar.
+- [ ] **SLA 2.0:** Alerta visual crítico no dashboard para leads sem contato humano > 30min.
 
 ---
 
-## Phase 3 — Roadmap Futuro
+## Phase 3 — Marketing, Finanças e Ecossistema
 
-- [ ] Dashboard executivo consolidado (todos os KPIs em uma tela)
-- [ ] Multi-idioma (i18n) — inglês, espanhol
-- [ ] Prontuário eletrônico básico (PEP) — anamnese, prescrições
-- [ ] API pública para integrações de terceiros
-- [ ] App mobile para secretária (React Native)
-- [ ] Sistema de avaliações pós-consulta (NPS automatizado)
-- [ ] Integração com CRMs externos (RD Station, HubSpot) via webhook out
-- [ ] Script de instalação automatizado one-liner com prompt interativo
+**Objetivo:** Escalar a operação e integrar com o fluxo financeiro e médico.
 
----
+### Finanças e Vendas
+- [ ] **Pagamento Antecipado:** Integração com Stripe/Asaas para procedimentos.
+- [ ] **Relatórios de ROI:** Custo por agendamento e performance de campanhas (UTMs).
+- [ ] **Comissionamento:** Relatório de conversão por secretária.
 
-## Ordem de Implementação dos Módulos
+### Integrações Médicas
+- [ ] **Google Calendar Adapter:** Sincronia bidirecional para médicos externos.
+- [ ] **Integração EMR/PEP:** Fluxo de dados para prontuários eletrônicos (FHIR).
+- [ ] **NPS Automatizado:** Coleta de satisfação pós-atendimento.
 
-```
-1.  Auth
-2.  CRM (patients)
-3.  Doctors + Specialties
-4.  SchedulingService (local_db adapter)
-5.  Appointments
-6.  Leads + SLA + Interações
-7.  Relatórios de Leads (básico)
-8.  Messaging (Telegram webhook)
-9.  AI Engine (OpenAI + tools)
-10. Follow-up (Celery)
-11. Admin Wizard
-12. Integrações externas (Google Calendar, WhatsApp, Meta Ads)
-```
+### Globalização e Escala
+- [ ] **Suporte a Local LLM:** (Opcional) para clínicas com alta demanda de privacidade.
+- [ ] **Multi-idioma (i18n):** Inglês e Espanhol.
+- [ ] **App Mobile (PWA):** Para notificações push em tempo real na mão da secretária.

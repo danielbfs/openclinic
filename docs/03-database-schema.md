@@ -12,11 +12,12 @@ status: draft
 erDiagram
     users {
         uuid id PK
-        string email UK
+        string username UK
         string full_name
         string password_hash
         string role
         bool is_active
+        bool must_change_password
     }
 
     specialties {
@@ -70,6 +71,7 @@ erDiagram
         string utm_campaign
         uuid specialty_id FK
         string status
+        string lost_reason
         uuid assigned_to FK
         timestamptz sla_deadline
         timestamptz contacted_at
@@ -174,14 +176,15 @@ CREATE EXTENSION IF NOT EXISTS "btree_gist";  -- para EXCLUDE constraint
 
 -- USUÁRIOS
 CREATE TABLE users (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email         VARCHAR(255) UNIQUE NOT NULL,
-    full_name     VARCHAR(255) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    role          VARCHAR(50) NOT NULL CHECK (role IN ('admin', 'secretary')),
-    is_active     BOOLEAN DEFAULT TRUE,
-    created_at    TIMESTAMPTZ DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ DEFAULT NOW()
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username              VARCHAR(150) UNIQUE NOT NULL,
+    full_name             VARCHAR(255) NOT NULL,
+    password_hash         VARCHAR(255) NOT NULL,
+    role                  VARCHAR(50) NOT NULL CHECK (role IN ('admin', 'secretary')),
+    is_active             BOOLEAN DEFAULT TRUE,
+    must_change_password  BOOLEAN DEFAULT TRUE,
+    created_at            TIMESTAMPTZ DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ESPECIALIDADES
@@ -263,8 +266,9 @@ CREATE TABLE leads (
     description          TEXT,
     quote_value          NUMERIC(10,2),
     status               VARCHAR(30) NOT NULL DEFAULT 'novo'
-                         CHECK (status IN ('novo','em_contato','orcamento_enviado',
-                                           'negociando','convertido','perdido')),
+                         CHECK (status IN ('novo','em_contato','qualificado',
+                                           'orcamento_enviado','negociando',
+                                           'convertido','perdido')),
     lost_reason          VARCHAR(255),
     assigned_to          UUID REFERENCES users(id),
     sla_deadline         TIMESTAMPTZ NOT NULL,

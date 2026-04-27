@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/secretary/calendar", label: "Calendário" },
   { href: "/secretary/appointments", label: "Agendamentos" },
   { href: "/secretary/patients", label: "Pacientes" },
+  { href: "/secretary/doctors", label: "Médicos" },
 ];
 
 export default function SecretaryLayout({ children }: { children: React.ReactNode }) {
