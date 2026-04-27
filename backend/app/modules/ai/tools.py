@@ -71,7 +71,8 @@ TOOL_DEFINITIONS = [
             "name": "book_appointment",
             "description": (
                 "Agenda uma consulta para o paciente. "
-                "SEMPRE confirme o horário com o paciente antes de chamar esta função."
+                "SEMPRE confirme o horário com o paciente antes de chamar esta função. "
+                "Se estiver REMARCANDO, informe replaces_appointment_id para cancelar o agendamento anterior."
             ),
             "parameters": {
                 "type": "object",
@@ -87,6 +88,10 @@ TOOL_DEFINITIONS = [
                     "patient_notes": {
                         "type": "string",
                         "description": "Observações do paciente (queixa principal, etc.)",
+                    },
+                    "replaces_appointment_id": {
+                        "type": "string",
+                        "description": "UUID do agendamento anterior a cancelar (obrigatório ao remarcar)",
                     },
                 },
                 "required": ["doctor_id", "starts_at"],
@@ -279,6 +284,18 @@ async def _book_appointment(
 
     ends_at = starts_at + timedelta(minutes=doctor.slot_duration_minutes)
 
+    # Se for remarcação, cancela o agendamento anterior antes de criar o novo
+    cancelled_old_id = None
+    if args.get("replaces_appointment_id"):
+        try:
+            old_appt = await get_appointment_by_id(db, uuid.UUID(args["replaces_appointment_id"]))
+            if old_appt and old_appt.status not in ("cancelled",):
+                await cancel_appointment(db, old_appt)
+                cancelled_old_id = str(old_appt.id)
+                logger.info("Agendamento anterior %s cancelado na remarcação", cancelled_old_id)
+        except Exception:
+            logger.exception("Falha ao cancelar agendamento anterior na remarcação")
+
     try:
         appt = await create_appointment(
             db,
@@ -296,6 +313,7 @@ async def _book_appointment(
             "doctor_name": doctor.full_name,
             "starts_at": starts_at.isoformat(),
             "ends_at": ends_at.isoformat(),
+            "cancelled_previous": cancelled_old_id,
         })
     except SlotNotAvailableError as e:
         return json.dumps({"error": str(e), "slot_unavailable": True})

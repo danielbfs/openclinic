@@ -43,6 +43,7 @@ export default function AppointmentsPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hideCancelled, setHideCancelled] = useState(true);
 
   // Create form
   const [showCreate, setShowCreate] = useState(false);
@@ -161,22 +162,36 @@ export default function AppointmentsPage() {
   }
 
   const doctorName = (id: string) => doctors.find((d) => d.id === id)?.full_name || "—";
+  const visibleAppointments = hideCancelled
+    ? appointments.filter((a) => a.status !== "cancelled")
+    : appointments;
 
   return (
     <main className="p-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Agendamentos</h1>
-        <button
-          onClick={() => {
-            setShowCreate(!showCreate);
-            setCreateStep(1);
-            setSlots([]);
-            setSelectedSlot(null);
-          }}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
-        >
-          {showCreate ? "Cancelar" : "Novo Agendamento"}
-        </button>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={hideCancelled}
+              onChange={(e) => setHideCancelled(e.target.checked)}
+              className="rounded"
+            />
+            Ocultar cancelados
+          </label>
+          <button
+            onClick={() => {
+              setShowCreate(!showCreate);
+              setCreateStep(1);
+              setSlots([]);
+              setSelectedSlot(null);
+            }}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
+          >
+            {showCreate ? "Cancelar" : "Novo Agendamento"}
+          </button>
+        </div>
       </div>
 
       {/* Create Appointment Flow */}
@@ -287,8 +302,12 @@ export default function AppointmentsPage() {
       {/* Appointments List */}
       {loading ? (
         <p className="text-gray-400">Carregando...</p>
-      ) : appointments.length === 0 ? (
-        <p className="text-gray-400">Nenhum agendamento encontrado.</p>
+      ) : visibleAppointments.length === 0 ? (
+        <p className="text-gray-400">
+          {hideCancelled && appointments.some((a) => a.status === "cancelled")
+            ? "Nenhum agendamento ativo. Desmarque \"Ocultar cancelados\" para ver todos."
+            : "Nenhum agendamento encontrado."}
+        </p>
       ) : (
         <div className="bg-white border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
@@ -302,7 +321,7 @@ export default function AppointmentsPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {appointments.map((appt) => (
+              {visibleAppointments.map((appt) => (
                 <tr key={appt.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <div className="font-medium text-gray-900">

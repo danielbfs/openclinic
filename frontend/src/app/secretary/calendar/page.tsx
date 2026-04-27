@@ -107,6 +107,7 @@ export default function CalendarPage() {
   const [patients, setPatients] = useState<Record<string, PatientLite>>({});
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Appointment | null>(null);
+  const [hideCancelled, setHideCancelled] = useState(true);
 
   useEffect(() => {
     api.get("/scheduling/doctors?active_only=true").then(({ data }) => setDoctors(data)).catch(() => {});
@@ -179,10 +180,15 @@ export default function CalendarPage() {
     return doctors.find((d) => d.id === did)?.full_name || "—";
   }
 
+  const visibleAppointments = useMemo(
+    () => hideCancelled ? appointments.filter((a) => a.status !== "cancelled") : appointments,
+    [appointments, hideCancelled]
+  );
+
   function appointmentsForDay(day: Date): Appointment[] {
     const s = new Date(day); s.setHours(0, 0, 0, 0);
     const e = addDays(s, 1);
-    return appointments
+    return visibleAppointments
       .filter((a) => { const t = new Date(a.starts_at); return t >= s && t < e; })
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
   }
@@ -254,6 +260,16 @@ export default function CalendarPage() {
           <button onClick={() => navigate(-1)} className="border px-3 py-2 rounded-lg text-sm hover:bg-gray-50">← Anterior</button>
           <button onClick={goToday} className="border px-3 py-2 rounded-lg text-sm hover:bg-gray-50">Hoje</button>
           <button onClick={() => navigate(1)} className="border px-3 py-2 rounded-lg text-sm hover:bg-gray-50">Próximo →</button>
+
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none border rounded-lg px-3 py-2 bg-white">
+            <input
+              type="checkbox"
+              checked={hideCancelled}
+              onChange={(e) => setHideCancelled(e.target.checked)}
+              className="rounded"
+            />
+            Ocultar cancelados
+          </label>
 
           <Link href="/secretary/appointments" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
             Novo Agendamento
