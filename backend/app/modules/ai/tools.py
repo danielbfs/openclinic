@@ -5,6 +5,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -160,6 +162,39 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_lead",
+            "description": (
+                "Registra um lead (oportunidade de venda) no CRM. "
+                "Use quando o paciente pedir orçamento/preço, demonstrar interesse mas não quiser agendar agora, "
+                "ou quando houver potencial de conversão futura."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "patient_name": {
+                        "type": "string",
+                        "description": "Nome do paciente mencionado na conversa (se informado)",
+                    },
+                    "specialty_id": {
+                        "type": "string",
+                        "description": "UUID da especialidade de interesse (opcional)",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "O que o paciente busca — tratamento, orçamento, dúvida, etc.",
+                    },
+                    "quote_value": {
+                        "type": "number",
+                        "description": "Valor de orçamento mencionado (opcional)",
+                    },
+                },
+                "required": ["description"],
+            },
+        },
+    },
 ]
 
 
@@ -183,6 +218,8 @@ async def execute_tool(
             return await _get_patient_appointments(db, patient_id)
         elif tool_name == "escalate_to_human":
             return await _escalate_to_human(db, patient_id, arguments)
+        elif tool_name == "create_lead":
+            return await _create_lead(db, patient_id, arguments)
         else:
             return json.dumps({"error": f"Tool desconhecida: {tool_name}"})
     except Exception as e:
@@ -210,8 +247,24 @@ async def _check_availability(db: AsyncSession, args: dict) -> str:
     else:
         return json.dumps({"error": "Informe doctor_id ou specialty_id"})
 
-    # Limit to 15 slots to avoid huge responses
-    return json.dumps({"available_slots": slots[:15], "total": len(slots)})
+    # Convert UTC slots → clinic local timezone so the LLM shows correct local hours
+    clinic_tz = ZoneInfo(settings.CLINIC_TIMEZONE)
+    local_slots = []
+    for slot in slots[:15]:
+        start_utc = datetime.fromisoformat(slot["starts_at"])
+        end_utc   = datetime.fromisoformat(slot["ends_at"])
+        start_loc = start_utc.astimezone(clinic_tz)
+        end_loc   = end_utc.astimezone(clinic_tz)
+        entry: dict = {
+            "starts_at": start_loc.isoformat(),   # e.g. 2026-04-28T08:00:00-03:00
+            "ends_at":   end_loc.isoformat(),
+            "display":   start_loc.strftime("%d/%m/%Y %H:%M"),  # "28/04/2026 08:00"
+        }
+        if "doctor_id"   in slot: entry["doctor_id"]   = slot["doctor_id"]
+        if "doctor_name" in slot: entry["doctor_name"] = slot["doctor_name"]
+        local_slots.append(entry)
+
+    return json.dumps({"available_slots": local_slots, "total": len(slots)})
 
 
 async def _book_appointment(
@@ -352,5 +405,103 @@ async def _escalate_to_human(
             "Conversa encaminhada para a secretária. "
             f"Motivo: {reason}. "
             "Em breve alguém entrará em contato."
+        ),
+    })
+
+
+async def _create_lead(
+    db: AsyncSession, patient_id: uuid.UUID, args: dict
+) -> str:
+    """Cria um lead no CRM a partir da conversa do chatbot."""
+    from app.modules.admin.models import SystemConfig
+    from app.modules.crm.models import Patient
+    from app.modules.leads.models import Lead
+
+    now = datetime.now(timezone.utc)
+
+    # Busca dados reais do paciente (telefone, canal)
+    patient = await db.get(Patient, patient_id)
+    if not patient:
+        # Sessão de teste — sem paciente real no banco
+        return json.dumps({
+            "success": False,
+            "message": (
+                "Simulação: em produção criaria um lead com o telefone do paciente. "
+                "Nenhum dado foi salvo nesta sessão de teste."
+            ),
+        })
+
+    phone   = patient.phone
+    channel = patient.channel or "outro"
+
+    # Evita duplicata: verifica lead ativo para este telefone
+    existing_q = await db.execute(
+        select(Lead)
+        .where(Lead.phone == phone)
+        .where(Lead.status.notin_(["convertido", "perdido"]))
+        .order_by(Lead.created_at.desc())
+    )
+    existing = existing_q.scalars().first()
+    if existing:
+        # Atualiza descrição se trouxer mais informação
+        if args.get("description") and not existing.description:
+            existing.description = args["description"]
+            await db.commit()
+        return json.dumps({
+            "success": True,
+            "lead_id": str(existing.id),
+            "already_existed": True,
+            "message": "Lead já existe no CRM. Informações atualizadas.",
+        })
+
+    # Lê SLA do banco ou usa padrão das configurações
+    sla_hours = settings.CLINIC_SLA_HOURS
+    try:
+        row = (await db.execute(
+            select(SystemConfig).where(SystemConfig.key == "sla")
+        )).scalar_one_or_none()
+        if row and row.value:
+            sla_hours = int(row.value.get("hours", sla_hours))
+    except Exception:
+        pass
+
+    specialty_id = None
+    if args.get("specialty_id"):
+        try:
+            specialty_id = uuid.UUID(args["specialty_id"])
+        except ValueError:
+            pass
+
+    quote_value = None
+    if args.get("quote_value"):
+        try:
+            quote_value = float(args["quote_value"])
+        except (TypeError, ValueError):
+            pass
+
+    full_name = args.get("patient_name") or patient.full_name
+
+    lead = Lead(
+        phone=phone,
+        full_name=full_name,
+        channel=channel,
+        status="em_contato",
+        contacted_at=now,
+        sla_deadline=now + timedelta(hours=sla_hours),
+        specialty_id=specialty_id,
+        description=args.get("description"),
+        quote_value=quote_value,
+    )
+    db.add(lead)
+    await db.commit()
+    await db.refresh(lead)
+
+    logger.info("Lead criado via chatbot: %s (paciente %s)", lead.id, patient_id)
+    return json.dumps({
+        "success": True,
+        "lead_id": str(lead.id),
+        "message": (
+            "Lead registrado no CRM com sucesso. "
+            "A equipe de vendas receberá para dar seguimento."
         ),
     })

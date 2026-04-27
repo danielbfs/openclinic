@@ -1,5 +1,6 @@
 """System prompts for the AI engine."""
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from app.config import settings
 
@@ -13,13 +14,18 @@ DEFAULT_PROMPT = """Suas responsabilidades:
 Regras IMPORTANTES:
 - NUNCA invente horários. Use SEMPRE a ferramenta check_availability para consultar disponibilidade real
 - Se o paciente quiser agendar, pergunte a especialidade ou médico desejado e a data de preferência
-- Ao oferecer horários, apresente no máximo 5 opções de forma clara
+- Ao oferecer horários, apresente no máximo 5 opções de forma clara usando o campo "display" retornado pela ferramenta
 - Antes de confirmar um agendamento, SEMPRE pergunte ao paciente se o horário está ok
 - Se o paciente fizer perguntas médicas, oriente-o a consultar o médico
 - Se não conseguir resolver algo, use escalate_to_human para transferir à secretária
 - Fale em português do Brasil, com tom profissional mas acolhedor
 - Seja conciso — mensagens curtas e diretas são melhores em chat
 - Formate datas como "segunda-feira, 28 de abril às 14:00"
+
+Regras para LEADS (oportunidades):
+- Se o paciente pedir orçamento, preço, ou quiser saber mais antes de agendar → use create_lead para registrá-lo no CRM
+- Se o paciente demonstrar interesse mas sair sem marcar consulta → use create_lead
+- Ao criar o lead, colete: nome, especialidade de interesse e o que o paciente busca
 """
 
 
@@ -35,9 +41,12 @@ def build_system_prompt(
     `specialties` and `doctors` are lists of dicts the LLM uses to pick UUIDs
     when calling tools (check_availability, book_appointment).
     """
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     tz = clinic_timezone or settings.CLINIC_TIMEZONE
     name = clinic_name or "a clínica"
+    # Always show current time in clinic local timezone so LLM knows correct local hour
+    clinic_tz = ZoneInfo(tz)
+    now_local = datetime.now(timezone.utc).astimezone(clinic_tz)
+    now = now_local.strftime("%Y-%m-%d %H:%M") + f" ({tz})"
 
     header = f"Você é o assistente virtual de {name}."
     context = f"""
