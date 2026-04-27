@@ -15,7 +15,7 @@ from app.core.permissions import require_role
 from app.database import get_db
 from app.modules.admin.models import AuditLog, SystemConfig
 from app.modules.auth.models import User
-from app.modules.messaging.adapters.telegram import set_telegram_webhook
+from app.modules.messaging.adapters.telegram import TelegramAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ async def setup_telegram_webhook(
         f"{scheme}://{settings.DOMAIN}/webhooks/telegram/{settings.TELEGRAM_BOT_TOKEN}"
     )
 
-    success = await set_telegram_webhook(webhook_url)
+    success = await TelegramAdapter().set_webhook(webhook_url)
     return TelegramWebhookResult(success=success, webhook_url=webhook_url)
 
 
