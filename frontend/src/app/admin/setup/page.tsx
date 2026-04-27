@@ -7,6 +7,7 @@ interface SetupStatus {
   telegram_configured: boolean;
   openai_configured: boolean;
   local_llm_configured: boolean;
+  whatsapp_configured: boolean;
   domain: string;
 }
 
@@ -38,6 +39,8 @@ export default function SetupPage() {
   const [loading, setLoading] = useState(true);
   const [webhookResult, setWebhookResult] = useState<string | null>(null);
   const [settingWebhook, setSettingWebhook] = useState(false);
+  const [whatsappWebhookResult, setWhatsappWebhookResult] = useState<string | null>(null);
+  const [settingWhatsappWebhook, setSettingWhatsappWebhook] = useState(false);
 
   const [clinic, setClinic] = useState<ClinicSettings>({
     name: "",
@@ -99,6 +102,23 @@ export default function SetupPage() {
       alert("Erro ao salvar.");
     } finally {
       setSavingSla(false);
+    }
+  }
+
+  async function setupWhatsAppWebhook() {
+    setSettingWhatsappWebhook(true);
+    setWhatsappWebhookResult(null);
+    try {
+      const { data } = await api.post("/admin/setup/whatsapp-webhook");
+      if (data.success) {
+        setWhatsappWebhookResult(`Webhook registrado: ${data.webhook_url}`);
+      } else {
+        setWhatsappWebhookResult("Falha ao registrar webhook. Verifique as variáveis EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_INSTANCE_NAME.");
+      }
+    } catch {
+      setWhatsappWebhookResult("Erro ao conectar com o servidor.");
+    } finally {
+      setSettingWhatsappWebhook(false);
     }
   }
 
@@ -259,11 +279,37 @@ export default function SetupPage() {
               value={status?.local_llm_configured ? "Configurado (.env)" : "Não configurado"}
               ok={!!status?.local_llm_configured}
             />
+            <StatusRow
+              label="WhatsApp (Evolution API)"
+              value={status?.whatsapp_configured ? "Configurado (.env)" : "Não configurado"}
+              ok={!!status?.whatsapp_configured}
+            />
           </div>
           <p className="text-xs text-gray-400 mt-3">
             O modelo de IA e o provedor podem ser escolhidos na aba "Chatbot / IA".
           </p>
         </div>
+
+        {/* WhatsApp Webhook */}
+        {status?.whatsapp_configured && (
+          <div className="bg-white border rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-2">WhatsApp Webhook (Evolution API)</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Registre o webhook para que a instância do WhatsApp receba mensagens dos pacientes.
+              Esse registro precisa ser feito apenas uma vez (ou ao trocar de domínio/instância).
+            </p>
+            <button
+              onClick={setupWhatsAppWebhook}
+              disabled={settingWhatsappWebhook}
+              className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+            >
+              {settingWhatsappWebhook ? "Registrando..." : "Registrar Webhook WhatsApp"}
+            </button>
+            {whatsappWebhookResult && (
+              <p className="mt-3 text-sm text-gray-600">{whatsappWebhookResult}</p>
+            )}
+          </div>
+        )}
 
         {/* Telegram Webhook */}
         {status?.telegram_configured && (

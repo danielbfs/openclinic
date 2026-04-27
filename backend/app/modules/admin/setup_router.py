@@ -29,10 +29,16 @@ class SetupStatus(BaseModel):
     telegram_configured: bool
     openai_configured: bool
     local_llm_configured: bool
+    whatsapp_configured: bool
     domain: str
 
 
 class TelegramWebhookResult(BaseModel):
+    success: bool
+    webhook_url: str
+
+
+class WhatsAppWebhookResult(BaseModel):
     success: bool
     webhook_url: str
 
@@ -135,6 +141,7 @@ async def get_setup_status(
         telegram_configured=bool(settings.TELEGRAM_BOT_TOKEN),
         openai_configured=bool(settings.OPENAI_API_KEY),
         local_llm_configured=bool(settings.LOCAL_LLM_BASE_URL),
+        whatsapp_configured=bool(settings.EVOLUTION_API_URL and settings.EVOLUTION_API_KEY and settings.EVOLUTION_INSTANCE_NAME),
         domain=settings.DOMAIN,
     )
 
@@ -154,6 +161,43 @@ async def setup_telegram_webhook(
 
     success = await TelegramAdapter().set_webhook(webhook_url)
     return TelegramWebhookResult(success=success, webhook_url=webhook_url)
+
+
+@router.post("/setup/whatsapp-webhook", response_model=WhatsAppWebhookResult)
+async def setup_whatsapp_webhook(
+    current_user: User = Depends(require_role("admin")),
+):
+    """Register the WhatsApp webhook URL with Evolution API."""
+    if not (settings.EVOLUTION_API_URL and settings.EVOLUTION_API_KEY and settings.EVOLUTION_INSTANCE_NAME):
+        return WhatsAppWebhookResult(success=False, webhook_url="")
+
+    scheme = "https" if settings.ENVIRONMENT == "production" else "http"
+    webhook_url = f"{scheme}://{settings.DOMAIN}/webhooks/whatsapp/{settings.EVOLUTION_API_KEY}"
+
+    import httpx
+    url = f"{settings.EVOLUTION_API_URL.rstrip('/')}/webhook/set/{settings.EVOLUTION_INSTANCE_NAME}"
+    headers = {"apikey": settings.EVOLUTION_API_KEY, "Content-Type": "application/json"}
+    payload = {
+        "webhook": {
+            "enabled": True,
+            "url": webhook_url,
+            "webhookByEvents": False,
+            "webhookBase64": False,
+            "events": ["MESSAGES_UPSERT"],
+        }
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.put(url, json=payload, headers=headers)
+            success = resp.status_code in (200, 201)
+            if not success:
+                logger.error("Evolution API webhook registration failed: %s %s", resp.status_code, resp.text)
+    except Exception as e:
+        logger.exception("Error registering Evolution API webhook: %s", e)
+        success = False
+
+    return WhatsAppWebhookResult(success=success, webhook_url=webhook_url)
 
 
 @router.get("/settings", response_model=AllSettings)
