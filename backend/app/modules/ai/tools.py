@@ -355,15 +355,28 @@ async def _get_patient_appointments(db: AsyncSession, patient_id: uuid.UUID) -> 
 async def _escalate_to_human(
     db: AsyncSession, patient_id: uuid.UUID, args: dict
 ) -> str:
-    """Marca o paciente como escalonado, encerra sessão IA e notifica humano."""
-    from sqlalchemy import select
+    """Marca o paciente como escalonado, encerra sessão IA e notifica humano.
 
+    Sempre tenta criar (ou atualizar) o lead para garantir registro no CRM,
+    independente de o LLM ter chamado create_lead antes.
+    """
     from app.modules.admin.models import SystemConfig
     from app.modules.ai.session import clear_session
     from app.modules.crm.models import Patient
     from app.modules.messaging.gateway import send_message
 
     reason = args.get("reason", "Paciente solicitou atendimento humano")
+
+    # Auto-cria lead ao escalar — garante registro mesmo que o LLM não tenha chamado create_lead
+    try:
+        lead_result = await _create_lead(db, patient_id, {
+            "description": f"Escalonado para atendimento humano. Motivo: {reason}",
+        })
+        lead_data = json.loads(lead_result)
+        if lead_data.get("success") and not lead_data.get("already_existed"):
+            logger.info("Lead auto-criado na escalação: %s", lead_data.get("lead_id"))
+    except Exception:
+        logger.exception("Falha ao criar lead automático na escalação para paciente %s", patient_id)
 
     # 1. Marca o paciente — usamos crm_status para indicar revisão humana
     patient = await db.get(Patient, patient_id)

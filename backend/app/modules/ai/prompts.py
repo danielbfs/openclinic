@@ -71,4 +71,16 @@ Data/hora atual: {now}
     # Use custom prompt from admin if provided, otherwise use default
     instructions = custom_prompt.strip() if custom_prompt.strip() else DEFAULT_PROMPT
 
-    return f"{header}\n{context}{catalog}\n\n{instructions}"
+    # Esta seção é SEMPRE incluída, independente do prompt personalizado do admin.
+    # Garante que o LLM saiba exatamente quando chamar cada ferramenta.
+    tool_rules = """
+---
+REGRAS DE USO DAS FERRAMENTAS (obrigatórias, não alterar):
+- check_availability → use SEMPRE que o paciente quiser saber horários disponíveis. Nunca invente horários.
+- book_appointment → use SOMENTE após o paciente confirmar o horário escolhido.
+- create_lead → use OBRIGATORIAMENTE quando: (a) paciente perguntar preço ou orçamento; (b) paciente demonstrar interesse mas não quiser agendar agora; (c) paciente quiser mais informações antes de decidir. Colete: nome, especialidade de interesse e motivo.
+- escalate_to_human → use quando não conseguir resolver. Ao escalar, o sistema criará o lead automaticamente.
+- Ao exibir horários, use o campo "display" retornado pela ferramenta (ex: "28/04/2026 08:00").
+"""
+
+    return f"{header}\n{context}{catalog}\n\n{instructions}\n{tool_rules}"
