@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 interface FollowupRule {
@@ -63,6 +63,7 @@ export default function FollowUpsPage() {
     is_active: true,
   });
   const [saving, setSaving] = useState(false);
+  const templateRef = useRef<HTMLTextAreaElement>(null);
 
   // Jobs filter
   const [jobFilter, setJobFilter] = useState<string>("");
@@ -101,11 +102,28 @@ export default function FollowUpsPage() {
       trigger_event: "appointment_scheduled",
       offset_minutes: -1440,
       message_template:
-        "Olá {patient_name}! Lembramos que sua consulta está marcada para {appointment_date}. Confirme sua presença respondendo esta mensagem.",
+        "Olá {patient_name}! Lembramos que sua consulta com {doctor_name} ({specialty}) está marcada para {appointment_date}. Confirme sua presença respondendo esta mensagem.",
       channel: "",
       is_active: true,
     });
     setShowForm(true);
+  }
+
+  function insertVariable(variable: string) {
+    const el = templateRef.current;
+    if (!el) {
+      setForm((f) => ({ ...f, message_template: f.message_template + variable }));
+      return;
+    }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const newVal = el.value.slice(0, start) + variable + el.value.slice(end);
+    setForm((f) => ({ ...f, message_template: newVal }));
+    // Restore cursor after the inserted variable
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + variable.length, start + variable.length);
+    });
   }
 
   function openEdit(rule: FollowupRule) {
@@ -290,20 +308,39 @@ export default function FollowUpsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Template da mensagem
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Template da mensagem
+                  </label>
+                  <span className="text-xs text-gray-400">Clique numa variável para inserir no cursor</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {[
+                    { tag: "{patient_name}",    label: "Nome do paciente"    },
+                    { tag: "{doctor_name}",     label: "Nome do médico"      },
+                    { tag: "{specialty}",       label: "Especialidade"       },
+                    { tag: "{appointment_date}", label: "Data/hora consulta" },
+                  ].map(({ tag, label }) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => insertVariable(tag)}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs rounded-md border border-blue-200 transition-colors font-mono"
+                      title={label}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
                 <textarea
+                  ref={templateRef}
                   value={form.message_template}
                   onChange={(e) => setForm({ ...form, message_template: e.target.value })}
                   required
-                  rows={3}
+                  rows={4}
                   className="w-full border rounded-lg px-3 py-2 text-sm"
-                  placeholder="Use {patient_name} e {appointment_date} como variáveis"
+                  placeholder="Ex: Olá {patient_name}! Sua consulta com {doctor_name} ({specialty}) está marcada para {appointment_date}."
                 />
-                <p className="text-xs text-gray-400 mt-1">
-                  Variáveis: {"{patient_name}"}, {"{appointment_date}"}
-                </p>
               </div>
               <div className="flex items-center gap-2">
                 <input

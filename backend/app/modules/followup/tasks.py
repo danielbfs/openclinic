@@ -29,8 +29,11 @@ async def _send_followup(task, job_id: str):
     from app.modules.crm.models import Patient
     from app.modules.scheduling.models import Appointment
     from app.modules.messaging.gateway import send_message
+    from app.config import settings
     from sqlalchemy import select
+    from sqlalchemy.orm import joinedload
     from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -45,7 +48,7 @@ async def _send_followup(task, job_id: str):
             logger.info("Job %s already processed (status=%s)", job_id, job.status)
             return
 
-        # Load related objects
+        # Load patient
         patient = await db.get(Patient, job.patient_id)
         if not patient:
             job.status = "failed"
@@ -54,18 +57,42 @@ async def _send_followup(task, job_id: str):
             await db.commit()
             return
 
-        appointment = await db.get(Appointment, job.appointment_id)
+        # Load appointment with doctor and specialty relationships
+        appt_result = await db.execute(
+            select(Appointment)
+            .options(
+                joinedload(Appointment.doctor),
+                joinedload(Appointment.specialty),
+            )
+            .where(Appointment.id == job.appointment_id)
+        )
+        appointment = appt_result.scalar_one_or_none()
 
-        # Render template
+        # Render template — replace all supported variables
         rule = job.rule
         message = rule.message_template
-        if patient.full_name:
-            message = message.replace("{patient_name}", patient.full_name)
+        clinic_tz = ZoneInfo(settings.CLINIC_TIMEZONE)
+
+        message = message.replace("{patient_name}", patient.full_name or patient.phone)
+
         if appointment:
+            appt_local = appointment.starts_at.astimezone(clinic_tz)
             message = message.replace(
                 "{appointment_date}",
-                appointment.starts_at.strftime("%d/%m/%Y às %H:%M"),
+                appt_local.strftime("%d/%m/%Y às %H:%M"),
             )
+            message = message.replace(
+                "{doctor_name}",
+                appointment.doctor.full_name if appointment.doctor else "",
+            )
+            message = message.replace(
+                "{specialty}",
+                appointment.specialty.name if appointment.specialty else "",
+            )
+        else:
+            # Remove placeholders gracefully if no appointment
+            for var in ("{appointment_date}", "{doctor_name}", "{specialty}"):
+                message = message.replace(var, "")
 
         # Determine channel
         channel = rule.channel or patient.channel
