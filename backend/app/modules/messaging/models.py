@@ -19,6 +19,7 @@ class Conversation(Base):
         UUID(as_uuid=True), ForeignKey("patients.id"), nullable=True
     )
     channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    control: Mapped[str] = mapped_column(String(20), default="ai")  # "ai" or "human"
     status: Mapped[str] = mapped_column(String(20), default="active")
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

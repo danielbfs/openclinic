@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # Telegram
     TELEGRAM_BOT_TOKEN: str = ""
 
+    # Evolution API (WhatsApp)
+    EVOLUTION_API_URL: str = ""
+    EVOLUTION_API_KEY: str = ""
+    EVOLUTION_INSTANCE_NAME: str = ""
+
     # Clínica
     CLINIC_TIMEZONE: str = "America/Sao_Paulo"
     CLINIC_SLA_HOURS: int = 2
